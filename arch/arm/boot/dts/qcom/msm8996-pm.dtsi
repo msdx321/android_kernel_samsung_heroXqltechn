@@ -135,7 +135,7 @@
 						qcom,spm-cpu-mode = "wfi";
 						qcom,latency-us = <20>;
 						qcom,ss-power = <200>;
-						qcom,energy-overhead = <15000>;
+						qcom,energy-overhead = <9000>;
 						qcom,time-overhead = <60>;
 					};
 
@@ -155,9 +155,9 @@
 						qcom,spm-cpu-mode = "fpc";
 						qcom,psci-cpu-mode = <4>;
 						qcom,latency-us = <80>;
-						qcom,ss-power = <198>;
-						qcom,energy-overhead = <39740>;
-						qcom,time-overhead = <180>;
+						qcom,ss-power = <196>;
+						qcom,energy-overhead = <45300>;
+						qcom,time-overhead = <210>;
 					};
 				};
 			};
@@ -202,7 +202,7 @@
 					qcom,ss-power = <160>;
 					qcom,energy-overhead = <441000>;
 					qcom,time-overhead = <1000>;
-					qcom,min-child-idx = <1>;
+					qcom,min-child-idx = <2>;
 					qcom,is-reset;
 				};
 
@@ -218,7 +218,7 @@
 						qcom,spm-cpu-mode = "wfi";
 						qcom,latency-us = <25>;
 						qcom,ss-power = <200>;
-						qcom,energy-overhead = <15000>;
+						qcom,energy-overhead = <9000>;
 						qcom,time-overhead = <60>;
 					};
 
@@ -238,9 +238,9 @@
 						qcom,spm-cpu-mode = "fpc";
 						qcom,psci-cpu-mode = <4>;
 						qcom,latency-us = <80>;
-						qcom,ss-power = <198>;
-						qcom,energy-overhead = <39740>;
-						qcom,time-overhead = <180>;
+						qcom,ss-power = <196>;
+						qcom,energy-overhead = <45300>;
+						qcom,time-overhead = <210>;
 					};
 				};
 			};
