@@ -501,8 +501,7 @@ static void wakeup_source_activate(struct wakeup_source *ws)
 	unsigned int cec;
 
 	if (((!enable_bluedroid_timer_ws &&
-			!strcmp(ws->name, "bluedroid_timer")) ||
-		(!enable_bluesleep_ws && !strcmp(ws->name, "bluesleep")))) {
+			!strcmp(ws->name, "bluedroid_timer")))) {
 		/*
 		 * let's try and deactivate this wakeup source since the user
 		 * clearly doesn't want it. The user is responsible for any
