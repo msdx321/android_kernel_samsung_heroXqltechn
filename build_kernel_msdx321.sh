@@ -54,8 +54,8 @@ FUNC_CLEAN()
 FUNC_BUILD_KERNEL()
 {
 		FUNC_PRINT "Start Building Kernel"
-		make -C $ROOT_DIR O=$BUILDING_DIR KCFLAGS=-mno-android $DEFCONFIG 
-		make -C $ROOT_DIR O=$BUILDING_DIR KCFLAGS=-mno-android -j$JOB_NUMBER ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILER
+		make -C $ROOT_DIR O=$BUILDING_DIR $DEFCONFIG 
+		make -C $ROOT_DIR O=$BUILDING_DIR -j$JOB_NUMBER ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILER
 		FUNC_PRINT "Finish Building Kernel"
 }
 
@@ -82,6 +82,9 @@ FUNC_PACK()
 if [ "${TOOLCHAIN}" = "SaberMod" ]; then
 		CROSS_COMPILER=$ROOT_DIR/toolchains/aarch64-sabermod-4.9/bin/aarch64-
 		FUNC_PRINT "Using SaberMod-ToolChain"
+elif [ "${TOOLCHAIN}" = "Linaro" ]; then
+		CROSS_COMPILER=$ROOT_DIR/toolchains/aarch64-linaro-4.9/bin/aarch64-linux-gnu-
+		FUNC_PRINT "Using Linaro-ToolChain"
 else
 		CROSS_COMPILER=$ROOT_DIR/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-android-
 		FUNC_PRINT "Using Default-ToolChain"
