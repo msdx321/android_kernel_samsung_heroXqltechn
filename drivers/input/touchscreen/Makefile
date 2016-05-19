@@ -91,4 +91,4 @@ obj-$(CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE) 	+= synaptics_fw_update.o
 obj-$(CONFIG_TOUCHSCREEN_GT9XX)		+= gt9xx/
 obj-$(CONFIG_TOUCHSCREEN_SEC_TS)	+= sec_ts/
 obj-$(CONFIG_TOUCHSCREEN_STM)		+= stm/
-
+obj-$(CONFIG_ALUCARD_TOUCHSCREEN_BOOST)	+= alu-t-boost.o
