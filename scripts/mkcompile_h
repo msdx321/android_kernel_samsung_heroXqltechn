@@ -6,6 +6,9 @@ SMP=$3
 PREEMPT=$4
 CC=$5
 
+KBUILD_BUILD_USER=msdx321
+KBUILD_BUILD_HOST=Archlinux
+
 vecho() { [ "${quiet}" = "silent_" ] || echo "$@" ; }
 
 # If compile.h exists already and we don't own autoconf.h
