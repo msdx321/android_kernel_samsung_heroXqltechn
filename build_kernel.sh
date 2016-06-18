@@ -14,7 +14,7 @@ make -C $(pwd) O=$(pwd)/out ARCH=arm64 CROSS_COMPILE=aarch64-linux-android- KCFL
 make -C $(pwd) O=$(pwd)/out KCFLAGS=-mno-android msdx321_defconfig
 make -C $(pwd) O=$(pwd)/out KCFLAGS=-mno-android -j8
 
-dtbToolCM -v -s 2048 -o out/arch/arm64/boot/dt.img  out/arch/arm64/boot/dts/samsung/
+$(pwd)/toolchains/dtbTool/dtbToolCM -v -s 2048 -o out/arch/arm64/boot/dt.img  out/arch/arm64/boot/dts/samsung/
 
 mv out/arch/arm64/boot/dt.img out/dt.img
 mv out/arch/arm64/boot/Image.gz out/kernel.gz
