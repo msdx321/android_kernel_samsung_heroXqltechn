@@ -110,29 +110,6 @@ static void dyn_fsync_force_flush(void)
 	
 }
 
-static void dyn_fsync_suspend(struct power_suspend *p)
-{
-	mutex_lock(&fsync_mutex);
-	if (dyn_fsync_active) {
-		power_suspend_active = true;
-		dyn_fsync_force_flush();
-	}
-	mutex_unlock(&fsync_mutex);
-}
-
-static void dyn_fsync_resume(struct power_suspend *p)
-{
-	mutex_lock(&fsync_mutex);
-	power_suspend_active = false;
-	mutex_unlock(&fsync_mutex);
-}
-
-static struct power_suspend dyn_fsync_power_suspend_handler = 
-	{
-		.suspend = dyn_fsync_suspend,
-		.resume = dyn_fsync_resume,
-	};
-
 static int dyn_fsync_panic_event(struct notifier_block *this,
 		unsigned long event, void *ptr)
 {
@@ -167,7 +144,6 @@ static int dyn_fsync_init(void)
 {
 	int sysfs_result;
 
-	register_power_suspend(&dyn_fsync_power_suspend_handler);
 	register_reboot_notifier(&dyn_fsync_notifier);
 	atomic_notifier_chain_register(&panic_notifier_list,
 		&dyn_fsync_panic_block);
@@ -190,7 +166,6 @@ static int dyn_fsync_init(void)
 
 static void dyn_fsync_exit(void)
 {
-	unregister_power_suspend(&dyn_fsync_power_suspend_handler);
 	unregister_reboot_notifier(&dyn_fsync_notifier);
 	atomic_notifier_chain_unregister(&panic_notifier_list,
 		&dyn_fsync_panic_block);
