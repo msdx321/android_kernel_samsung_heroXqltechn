@@ -16,5 +16,5 @@ make -C $(pwd) O=$(pwd)/out KCFLAGS=-mno-android -j8
 
 $(pwd)/toolchains/dtbTool/dtbToolCM -v -s 2048 -o out/arch/arm64/boot/dt.img  out/arch/arm64/boot/dts/samsung/
 
-mv out/arch/arm64/boot/dt.img out/dt.img
-mv out/arch/arm64/boot/Image.gz out/kernel.gz
+cp out/arch/arm64/boot/dt.img out/dt_image
+cp out/arch/arm64/boot/Image.gz out/kernel.gz
