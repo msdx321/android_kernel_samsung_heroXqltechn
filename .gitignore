@@ -1,1 +1,4 @@
 /out
+boot.img
+boot.img-dt
+boot.img-zImage
