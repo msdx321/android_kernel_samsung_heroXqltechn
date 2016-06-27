@@ -10,8 +10,12 @@ make -C $(pwd) O=$(pwd)/out KCFLAGS=-mno-android -j8
 
 $(pwd)/toolchains/dtbTool/dtbToolCM -v -s 2048 -o out/arch/arm64/boot/dt.img  out/arch/arm64/boot/dts/samsung/
 
+rm -rf prebuilt-anykernel/dtb
+rm -rf prebuilt-anykernel/zImage
+
 cp -f out/arch/arm64/boot/dt.img prebuilt-anykernel/dtb
 cp -f out/arch/arm64/boot/Image.gz prebuilt-anykernel/zImage
 
 cd prebuilt-anykernel
+rm -rf BKernel.zip
 zip -r BKernel.zip ./*
