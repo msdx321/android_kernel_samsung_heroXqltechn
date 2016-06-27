@@ -2,3 +2,6 @@
 boot.img
 boot.img-dt
 boot.img-zImage
+BKernel.zip
+dtb
+zImage
