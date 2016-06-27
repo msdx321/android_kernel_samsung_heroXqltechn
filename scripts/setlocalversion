@@ -56,7 +56,7 @@ scm_version()
 				# If only the short version is requested,
 				# don't bother running further git commands
 				if $short; then
-					echo "+"
+					echo ""
 					return
 				fi
 				printf '%s%s' -g "`git show-ref -s --abbrev --tags $atag 2>/dev/null`"
