@@ -628,6 +628,10 @@ else
 KBUILD_CFLAGS	+= -O2
 endif
 
+ifdef CONFIG_KERNEL_OPTIMIZATION
+KBUILD_CFLAGS	+= -Ofast -pipe -DNDEBUG -fpredictive-commoning -fgraphite -fgraphite-identity -floop-flatten -floop-parallelize-all -ftree-loop-linear -floop-interchange -floop-strip-mine -floop-block -floop-nest-optimize -funsafe-math-optimizations -ftree-loop-ivcanon -fweb -frename-registers -fmodulo-sched -ftree-vectorize -fgcse-after-reload -fgcse-las
+endif
+
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
 
