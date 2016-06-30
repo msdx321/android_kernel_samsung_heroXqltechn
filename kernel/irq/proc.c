@@ -12,6 +12,7 @@
 #include <linux/seq_file.h>
 #include <linux/interrupt.h>
 #include <linux/kernel_stat.h>
+#include <linux/mutex.h>
 
 #include "internals.h"
 
