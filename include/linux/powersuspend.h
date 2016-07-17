@@ -40,3 +40,7 @@ void set_power_suspend_state_panel_hook(int new_state);
 
 #endif
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> b1d3c0d... Powersuspend v1.7 [Fau123, Yank555.lu]
