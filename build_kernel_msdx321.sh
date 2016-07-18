@@ -17,6 +17,7 @@ DTBTOOL=$ROOT_DIR/toolchains/dtbTool/dtbToolCM
 
 BUILD_CHOICE=$1
 TOOLCHAIN=$2
+MODEL_CHOICE=$3
 
 source $ROOT_DIR/venv/bin/activate
 
@@ -53,7 +54,7 @@ FUNC_CLEAN()
 FUNC_BUILD_KERNEL()
 {
 		FUNC_PRINT "Start Building Kernel"
-		make -C $ROOT_DIR O=$BUILDING_DIR KCFLAGS=-mno-android msdx321_defconfig
+		make -C $ROOT_DIR O=$BUILDING_DIR KCFLAGS=-mno-android $DEFCONFIG 
 		make -C $ROOT_DIR O=$BUILDING_DIR KCFLAGS=-mno-android -j$JOB_NUMBER ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILER
 		FUNC_PRINT "Finish Building Kernel"
 }
@@ -84,6 +85,14 @@ else
 		FUNC_PRINT "Using Default-ToolChain"
 fi;
 
+if [ "${MODEL_CHOICE}" = "9300" ]; then
+		DEFCONFIG=msdx321_heroqlte_chnzc_defconfig
+		FUNC_PRINT "For G9300"
+else
+		DEFCONFIG=msdx321_hero2qlte_chnzc_defconfig
+		FUNC_PRINT "For G9350"
+fi;
+
 START_TIME=`date +%s`
 if [ "${BUILD_CHOICE}" = "dirty" ]; then
 		FUNC_CLEAN dirty
@@ -93,10 +102,8 @@ if [ "${BUILD_CHOICE}" = "dirty" ]; then
 elif [ "${BUILD_CHOICE}" = "pack-only" ]; then
 		FUNC_CLEAN dirty
 		FUNC_PACK
-elif [ "${BUILD_CHOICE}" = "clean-make" ]; then
+elif [ "${BUILD_CHOICE}" = "clean" ]; then
 		FUNC_CLEAN make-clean
-		FUNC_BUILD_KERNEL
-		FUNC_BUILD_DTB
 		FUNC_PACK
 else
 		FUNC_CLEAN all
