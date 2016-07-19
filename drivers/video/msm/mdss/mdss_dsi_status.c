@@ -30,6 +30,10 @@
 #include "mdss_panel.h"
 #include "mdss_mdp.h"
 
+#ifdef CONFIG_POWERSUSPEND
+#include <linux/powersuspend.h>
+#endif
+
 #define STATUS_CHECK_INTERVAL_MS 5000
 #define STATUS_CHECK_INTERVAL_MIN_MS 50
 #define DSI_STATUS_CHECK_INIT -1
@@ -157,6 +161,9 @@ static int fb_event_callback(struct notifier_block *self,
 
 		switch (*blank) {
 		case FB_BLANK_UNBLANK:
+#ifdef CONFIG_POWERSUSPEND
+				set_power_suspend_state_panel_hook(POWER_SUSPEND_INACTIVE);
+#endif
 #if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
 			if (!ctrl_pdata->status_mode == ESD_REG_IRQ)
 #endif
@@ -167,6 +174,9 @@ static int fb_event_callback(struct notifier_block *self,
 		case FB_BLANK_HSYNC_SUSPEND:
 		case FB_BLANK_VSYNC_SUSPEND:
 		case FB_BLANK_NORMAL:
+#ifdef CONFIG_POWERSUSPEND
+		 		set_power_suspend_state_panel_hook(POWER_SUSPEND_ACTIVE);
+#endif
 #if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
 			if (ctrl_pdata->status_mode == ESD_REG_IRQ)
 				cancel_work_sync(&pdata->check_status.work);
