@@ -295,11 +295,11 @@ static int sdev_runtime_resume(struct device *dev)
 	if (!sdev->request_queue->dev)
 		return scsi_dev_type_resume(dev, do_scsi_runtime_resume);
 
-	if (pm && pm->runtime_resume) {
-		blk_pre_runtime_resume(sdev->request_queue);
+	blk_pre_runtime_resume(sdev->request_queue);
+	if (pm && pm->runtime_resume)
 		err = pm->runtime_resume(dev);
-		blk_post_runtime_resume(sdev->request_queue, err);
-	}
+	blk_post_runtime_resume(sdev->request_queue, err);
+
 	return err;
 }
 

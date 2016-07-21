@@ -634,9 +634,6 @@ repeat:
 	if (unlikely(d_unhashed(dentry)))
 		goto kill_it;
 
-	if (unlikely(dentry->d_flags & DCACHE_DISCONNECTED))
-		goto kill_it;
-
 	if (unlikely(dentry->d_flags & DCACHE_OP_DELETE)) {
 		if (dentry->d_op->d_delete(dentry))
 			goto kill_it;
@@ -1536,8 +1533,7 @@ void d_set_d_op(struct dentry *dentry, const struct dentry_operations *op)
 				DCACHE_OP_COMPARE	|
 				DCACHE_OP_REVALIDATE	|
 				DCACHE_OP_WEAK_REVALIDATE	|
-				DCACHE_OP_DELETE	|
-				DCACHE_OP_SELECT_INODE));
+				DCACHE_OP_DELETE ));
 	dentry->d_op = op;
 	if (!op)
 		return;
@@ -1553,8 +1549,6 @@ void d_set_d_op(struct dentry *dentry, const struct dentry_operations *op)
 		dentry->d_flags |= DCACHE_OP_DELETE;
 	if (op->d_prune)
 		dentry->d_flags |= DCACHE_OP_PRUNE;
-	if (op->d_select_inode)
-		dentry->d_flags |= DCACHE_OP_SELECT_INODE;
 
 }
 EXPORT_SYMBOL(d_set_d_op);

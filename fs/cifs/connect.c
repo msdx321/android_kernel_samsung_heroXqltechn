@@ -357,6 +357,7 @@ cifs_reconnect(struct TCP_Server_Info *server)
 	server->session_key.response = NULL;
 	server->session_key.len = 0;
 	server->lstrp = jiffies;
+	mutex_unlock(&server->srv_mutex);
 
 	/* mark submitted MIDs for retry and issue callback */
 	INIT_LIST_HEAD(&retry_list);
@@ -369,7 +370,6 @@ cifs_reconnect(struct TCP_Server_Info *server)
 		list_move(&mid_entry->qhead, &retry_list);
 	}
 	spin_unlock(&GlobalMid_Lock);
-	mutex_unlock(&server->srv_mutex);
 
 	cifs_dbg(FYI, "%s: issuing mid callbacks\n", __func__);
 	list_for_each_safe(tmp, tmp2, &retry_list) {
@@ -1466,7 +1466,9 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 			vol->seal = 1;
 			break;
 		case Opt_noac:
-			pr_warn("CIFS: Mount option noac not supported. Instead set /proc/fs/cifs/LookupCacheEnabled to 0\n");
+			printk(KERN_WARNING "CIFS: Mount option noac not "
+				"supported. Instead set "
+				"/proc/fs/cifs/LookupCacheEnabled to 0\n");
 			break;
 		case Opt_fsc:
 #ifndef CONFIG_CIFS_FSCACHE
@@ -1596,7 +1598,7 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 
 			if (strnlen(string, CIFS_MAX_USERNAME_LEN) >
 							CIFS_MAX_USERNAME_LEN) {
-				pr_warn("CIFS: username too long\n");
+				printk(KERN_WARNING "CIFS: username too long\n");
 				goto cifs_parse_mount_err;
 			}
 			vol->username = kstrdup(string, GFP_KERNEL);
@@ -1660,7 +1662,8 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 			temp_len = strlen(value);
 			vol->password = kzalloc(temp_len+1, GFP_KERNEL);
 			if (vol->password == NULL) {
-				pr_warn("CIFS: no memory for password\n");
+				printk(KERN_WARNING "CIFS: no memory "
+						    "for password\n");
 				goto cifs_parse_mount_err;
 			}
 
@@ -1684,7 +1687,8 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 
 			if (!cifs_convert_address(dstaddr, string,
 					strlen(string))) {
-				pr_err("CIFS: bad ip= option (%s).\n", string);
+				printk(KERN_ERR "CIFS: bad ip= option (%s).\n",
+					string);
 				goto cifs_parse_mount_err;
 			}
 			got_ip = true;
@@ -1696,13 +1700,15 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 
 			if (strnlen(string, CIFS_MAX_DOMAINNAME_LEN)
 					== CIFS_MAX_DOMAINNAME_LEN) {
-				pr_warn("CIFS: domain name too long\n");
+				printk(KERN_WARNING "CIFS: domain name too"
+						    " long\n");
 				goto cifs_parse_mount_err;
 			}
 
 			vol->domainname = kstrdup(string, GFP_KERNEL);
 			if (!vol->domainname) {
-				pr_warn("CIFS: no memory for domainname\n");
+				printk(KERN_WARNING "CIFS: no memory "
+						    "for domainname\n");
 				goto cifs_parse_mount_err;
 			}
 			cifs_dbg(FYI, "Domain name set\n");
@@ -1715,8 +1721,8 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 			if (!cifs_convert_address(
 					(struct sockaddr *)&vol->srcaddr,
 					string, strlen(string))) {
-				pr_warn("CIFS: Could not parse srcaddr: %s\n",
-					string);
+				printk(KERN_WARNING "CIFS:  Could not parse"
+						    " srcaddr: %s\n", string);
 				goto cifs_parse_mount_err;
 			}
 			break;
@@ -1726,7 +1732,8 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 				goto out_nomem;
 
 			if (strnlen(string, 1024) >= 65) {
-				pr_warn("CIFS: iocharset name too long.\n");
+				printk(KERN_WARNING "CIFS: iocharset name "
+						    "too long.\n");
 				goto cifs_parse_mount_err;
 			}
 
@@ -1734,7 +1741,8 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 				vol->iocharset = kstrdup(string,
 							 GFP_KERNEL);
 				if (!vol->iocharset) {
-					pr_warn("CIFS: no memory for charset\n");
+					printk(KERN_WARNING "CIFS: no memory"
+							    "for charset\n");
 					goto cifs_parse_mount_err;
 				}
 			}
@@ -1765,7 +1773,9 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 			 * set at top of the function
 			 */
 			if (i == RFC1001_NAME_LEN && string[i] != 0)
-				pr_warn("CIFS: netbiosname longer than 15 truncated.\n");
+				printk(KERN_WARNING "CIFS: netbiosname"
+				       " longer than 15 truncated.\n");
+
 			break;
 		case Opt_servern:
 			/* servernetbiosname specified override *SMBSERVER */
@@ -1791,7 +1801,8 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 			/* The string has 16th byte zero still from
 			   set at top of the function  */
 			if (i == RFC1001_NAME_LEN && string[i] != 0)
-				pr_warn("CIFS: server netbiosname longer than 15 truncated.\n");
+				printk(KERN_WARNING "CIFS: server net"
+				       "biosname longer than 15 truncated.\n");
 			break;
 		case Opt_ver:
 			string = match_strdup(args);
@@ -1803,7 +1814,8 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 				break;
 			}
 			/* For all other value, error */
-			pr_warn("CIFS: Invalid version specified\n");
+			printk(KERN_WARNING "CIFS: Invalid version"
+					    " specified\n");
 			goto cifs_parse_mount_err;
 		case Opt_vers:
 			string = match_strdup(args);
@@ -1844,7 +1856,7 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 	}
 
 	if (!sloppy && invalid) {
-		pr_err("CIFS: Unknown mount option \"%s\"\n", invalid);
+		printk(KERN_ERR "CIFS: Unknown mount option \"%s\"\n", invalid);
 		goto cifs_parse_mount_err;
 	}
 
@@ -1870,7 +1882,8 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 		/* No ip= option specified? Try to get it from UNC */
 		if (!cifs_convert_address(dstaddr, &vol->UNC[2],
 						strlen(&vol->UNC[2]))) {
-			pr_err("Unable to determine destination address.\n");
+			printk(KERN_ERR "Unable to determine destination "
+					"address.\n");
 			goto cifs_parse_mount_err;
 		}
 	}
@@ -1881,18 +1894,20 @@ cifs_parse_mount_options(const char *mountdata, const char *devname,
 	if (uid_specified)
 		vol->override_uid = override_uid;
 	else if (override_uid == 1)
-		pr_notice("CIFS: ignoring forceuid mount option specified with no uid= option.\n");
+		printk(KERN_NOTICE "CIFS: ignoring forceuid mount option "
+				   "specified with no uid= option.\n");
 
 	if (gid_specified)
 		vol->override_gid = override_gid;
 	else if (override_gid == 1)
-		pr_notice("CIFS: ignoring forcegid mount option specified with no gid= option.\n");
+		printk(KERN_NOTICE "CIFS: ignoring forcegid mount option "
+				   "specified with no gid= option.\n");
 
 	kfree(mountdata_copy);
 	return 0;
 
 out_nomem:
-	pr_warn("Could not allocate temporary buffer\n");
+	printk(KERN_WARNING "Could not allocate temporary buffer\n");
 cifs_parse_mount_err:
 	kfree(string);
 	kfree(mountdata_copy);
