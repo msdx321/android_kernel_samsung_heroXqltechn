@@ -78,7 +78,7 @@ FUNC_PACK()
 }
 
 if [ "${TOOLCHAIN}" = "SaberMod" ]; then
-		CROSS_COMPILER=$ROOT_DIR/toolchains/SaberMod-aarch64-4.9/bin/aarch64-
+		CROSS_COMPILER=$ROOT_DIR/toolchains/aarch64-sabermod-4.9/bin/aarch64-
 		FUNC_PRINT "Using SaberMod-ToolChain"
 else
 		CROSS_COMPILER=$ROOT_DIR/toolchains/aarch64-linux-android-4.9/bin/aarch64-linux-android-
