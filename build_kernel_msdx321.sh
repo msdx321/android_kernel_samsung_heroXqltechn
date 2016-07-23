@@ -70,6 +70,8 @@ FUNC_PACK()
 		FUNC_PRINT "Start Packing"
 		cp -r $ANYKERNEL_DIR/* $TEMP_DIR
 		cp $BUILDING_DIR/arch/arm64/boot/Image.gz $TEMP_DIR/zImage
+		mkdir $TEMP_DIR/modules
+		find . -type f -name "*.ko" | xargs cp -t $TEMP_DIR/modules
 		cd $TEMP_DIR
 		zip -r BKernel.zip ./*
 		mv BKernel.zip $OUT_DIR/BKernel.zip
