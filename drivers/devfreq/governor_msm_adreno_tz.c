@@ -399,6 +399,9 @@ static int tz_handler(struct devfreq *devfreq, unsigned int event, void *data)
 		break;
 
 	case DEVFREQ_GOV_RESUME:
+		suspended = false;
+		break;
+
 	case DEVFREQ_GOV_INTERVAL:
 		/* ignored, this governor doesn't use polling */
 	default:
