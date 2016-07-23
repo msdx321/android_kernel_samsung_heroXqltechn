@@ -83,7 +83,7 @@ static int f2fs_xattr_generic_get(struct dentry *dentry, const char *name,
 	}
 	if (strcmp(name, "") == 0)
 		return -EINVAL;
-	return f2fs_getxattr(dentry->d_inode, type, name, buffer, size, NULL);
+	return f2fs_getxattr(dentry->d_inode, type, name, buffer, size);
 }
 
 static int f2fs_xattr_generic_set(struct dentry *dentry, const char *name,
@@ -398,7 +398,7 @@ static inline int write_all_xattrs(struct inode *inode, __u32 hsize,
 }
 
 int f2fs_getxattr(struct inode *inode, int index, const char *name,
-		void *buffer, size_t buffer_size, struct page *ipage)
+		void *buffer, size_t buffer_size)
 {
 	struct f2fs_xattr_entry *entry;
 	void *base_addr;
@@ -412,7 +412,7 @@ int f2fs_getxattr(struct inode *inode, int index, const char *name,
 	if (len > F2FS_NAME_LEN)
 		return -ERANGE;
 
-	base_addr = read_all_xattrs(inode, ipage);
+	base_addr = read_all_xattrs(inode, NULL);
 	if (!base_addr)
 		return -ENOMEM;
 

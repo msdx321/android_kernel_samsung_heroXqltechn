@@ -111,7 +111,7 @@ retry:
 			iput(einode);
 			goto out_unmap_put;
 		}
-		f2fs_delete_entry(de, page, dir, einode);
+		f2fs_delete_entry(de, page, einode);
 		iput(einode);
 		goto retry;
 	}
@@ -129,8 +129,7 @@ retry:
 	goto out;
 
 out_unmap_put:
-	if (!f2fs_has_inline_dentry(dir))
-		kunmap(page);
+	kunmap(page);
 	f2fs_put_page(page, 0);
 out_err:
 	iput(dir);
