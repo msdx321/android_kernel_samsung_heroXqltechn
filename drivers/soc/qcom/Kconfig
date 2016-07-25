@@ -944,4 +944,10 @@ config SEC_SSR_DEBUG_LEVEL_CHK
 	help
 	  To check the authentication of peripheral image.
 
+config ALUCARD_HOTPLUG
+	bool "Enable alucard-hotplug cpu hotplug driver"
+	default n
+	help
+	  Generic Alucard-hotplug cpu hotplug driver for ARM SOCs
+
 endif # ARCH_MSM
