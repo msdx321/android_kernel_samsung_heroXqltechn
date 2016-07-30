@@ -563,6 +563,16 @@ config TIMA_LOG
 	tristate "Support for dumping TIMA log"
 	depends on TIMA
 	default y
+
+config MEMORY_STATE_TIME
+	tristate "Memory freq/bandwidth time statistics"
+	depends on PROFILING
+	help
+	  Memory time statistics exported to /sys/kernel/memory_state_time
+
+config USB_EXT_TYPE_C_PERICOM
+	tristate "USB Type-C charger detection support using Pericom chip"
+	depends on I2C && POWER_SUPPLY
 	help
 		This option enables support for dumping TIMA log.
 
