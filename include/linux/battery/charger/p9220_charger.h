@@ -474,7 +474,8 @@ struct p9220_charger_data {
 	struct delayed_work	wpc_det_work;
 	struct delayed_work	wpc_opfq_work;
 	struct delayed_work	wpc_isr_work;
-
+	struct delayed_work	wpc_tx_id_work;
+	
 	struct pinctrl *i2c_pinctrl;
 	struct pinctrl_state *i2c_gpio_state_active;
 	struct pinctrl_state *i2c_gpio_state_suspend;
