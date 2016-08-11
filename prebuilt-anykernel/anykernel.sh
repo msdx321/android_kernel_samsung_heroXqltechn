@@ -3,7 +3,7 @@
 
 ## AnyKernel setup
 # EDIFY properties
-kernel.string=BKernel by msdx321 @ Weibo 
+kernel.string=BKernel by msdx321 @ Weibo
 do.devicecheck=0
 do.initd=0
 do.modules=1
@@ -16,7 +16,7 @@ device.name5=
 
 # shell variables
 block=/dev/block/bootdevice/by-name/boot;
-oc=1;
+OC=2;
 
 ## end setup
 
@@ -59,7 +59,8 @@ dump_boot() {
 # repack ramdisk then build and write image
 write_boot() {
   cd $split_img;
-  cmdline=`cat *-cmdline`;
+  cmdline="console=null androidboot.hardware=qcom user_debug=31 msm_rtb.filter=0x37 ehci-hcd.park=3 lpm_levels.sleep_disabled=1 cma=24M@0-0xffffffff rcupdate.rcu_expedited=1";
+  cmdlineOC="console=null androidboot.hardware=qcom user_debug=31 msm_rtb.filter=0x37 ehci-hcd.park=3 lpm_levels.sleep_disabled=1 cma=24M@0-0xffffffff rcupdate.rcu_expedited=1 cpu_max_c1=1728000 cpu_max_c2=2265600";
   board=`cat *-board`;
   base=`cat *-base`;
   pagesize=`cat *-pagesize`;
@@ -89,8 +90,9 @@ write_boot() {
   if [ $? != 0 ]; then
     ui_print " "; ui_print "Repacking ramdisk failed. Aborting..."; exit 1;
   fi;
-  if [ $oc != 0 ]; then
-		$bin/mkbootimg --kernel $kernel --ramdisk /tmp/anykernel/ramdisk-new.cpio.gz $second --cmdline "${cmdline} --cpu_max_c1=1728000 --cpu_max_c2=2265600" --board "$board" --base $base --pagesize $pagesize --kernel_offset $kerneloff --ramdisk_offset $ramdiskoff $secondoff --tags_offset $tagsoff $dtb --output /tmp/anykernel/boot-new.img;
+  if [ $OC == 1 ]; then
+    ui_print " "; ui_print "Overclocking your device";
+		$bin/mkbootimg --kernel $kernel --ramdisk /tmp/anykernel/ramdisk-new.cpio.gz $second --cmdline "$cmdlineOC" --board "$board" --base $base --pagesize $pagesize --kernel_offset $kerneloff --ramdisk_offset $ramdiskoff $secondoff --tags_offset $tagsoff $dtb --output /tmp/anykernel/boot-new.img;
   else
 		$bin/mkbootimg --kernel $kernel --ramdisk /tmp/anykernel/ramdisk-new.cpio.gz $second --cmdline "$cmdline" --board "$board" --base $base --pagesize $pagesize --kernel_offset $kerneloff --ramdisk_offset $ramdiskoff $secondoff --tags_offset $tagsoff $dtb --output /tmp/anykernel/boot-new.img;
   fi;
@@ -105,7 +107,6 @@ write_boot() {
       ui_print " "; ui_print "User script execution failed. Aborting..."; exit 1;
     fi;
   fi;
-  echo SEANDROIDENFORCE >> /tmp/anykernel/boot-new.img;
   dd if=/tmp/anykernel/boot-new.img of=$block;
 }
 
@@ -213,6 +214,7 @@ patch_fstab() {
 ## end methods
 
 
+## AnyKernel permissions
 
 ## AnyKernel install
 dump_boot;
