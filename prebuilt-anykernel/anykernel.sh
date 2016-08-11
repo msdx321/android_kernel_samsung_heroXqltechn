@@ -16,7 +16,7 @@ device.name5=
 
 # shell variables
 block=/dev/block/bootdevice/by-name/boot;
-OC=2;
+OC=1;
 
 ## end setup
 
@@ -107,6 +107,7 @@ write_boot() {
       ui_print " "; ui_print "User script execution failed. Aborting..."; exit 1;
     fi;
   fi;
+  echo SEANDROIDENFORCE >> /tmp/anykernel/boot-new.img;
   dd if=/tmp/anykernel/boot-new.img of=$block;
 }
 
