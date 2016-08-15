@@ -395,8 +395,8 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 				"   Total reserve is %ldkB\n" \
 				"   Total free pages is %ldkB\n" \
 				"   Total file cache is %ldkB\n" \
-				"   GFP mask is 0x%x\n",
-				"   Total zcache is %ldkB\n" \
+				"   GFP mask is 0x%x\n" \
+				"   Total zcache is %ldkB\n",
 			     selected->comm, selected->pid,
 			     selected_oom_score_adj,
 			     selected_tasksize * (long)(PAGE_SIZE / 1024),
@@ -414,8 +414,8 @@ static unsigned long lowmem_scan(struct shrinker *s, struct shrink_control *sc)
 				(long)(PAGE_SIZE / 1024),
 			     global_page_state(NR_FILE_PAGES) *
 				(long)(PAGE_SIZE / 1024),
-			     sc->gfp_mask),
-				(long)zcache_pages() * (long)(PAGE_SIZE / 1024);
+			     sc->gfp_mask,
+				(long)zcache_pages() * (long)(PAGE_SIZE / 1024));
 
 		if (lowmem_debug_level >= 2 && selected_oom_score_adj == 0) {
 			show_mem(SHOW_MEM_FILTER_NODES);
