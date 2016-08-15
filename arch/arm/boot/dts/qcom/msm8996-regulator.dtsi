@@ -309,9 +309,9 @@
 	rpm-regulator-ldoa22 {
 		status = "okay";
 		pm8994_l22: regulator-l22 {
-			regulator-min-microvolt = <3050000>;
-			regulator-max-microvolt = <3050000>;
-			qcom,init-voltage = <3050000>;
+			regulator-min-microvolt = <3300000>;
+			regulator-max-microvolt = <3300000>;
+			qcom,init-voltage = <3300000>;
 			status = "okay";
 		};
 	};
@@ -828,10 +828,10 @@
 				qcom,cpr-aging-ro-scaling-factor = <3200>;
 				qcom,allow-aging-voltage-adjustment =
 					/* Speed bin 0 */
-					<0 0 0 0 0 0 0 0>,
+					<0 0 0 1 1 1 1 1>,
 
 					/* Speed bin 1 */
-					<0 0 0 0 0 0 0 0>;
+					<0 0 0 1 1 1 1 1>;
 			};
 
 			apc0_cbf_vreg: regulator-cbf {
@@ -1026,10 +1026,10 @@
 				qcom,cpr-aging-ro-scaling-factor = <3200>;
 				qcom,allow-aging-voltage-adjustment =
 					/* Speed bin 0 */
-					<0 0 0 0 0 0 0 0>,
+					<0 0 0 1 1 1 1 1>,
 
 					/* Speed bin 1 */
-					<0 0 0 0 0 0 0 0>;
+					<0 0 0 1 1 1 1 1>;
 			};
 		};
 
@@ -1312,10 +1312,10 @@
 				qcom,cpr-aging-ro-scaling-factor = <3200>;
 				qcom,allow-aging-voltage-adjustment =
 					/* Speed bin 0 */
-					<0 0 0 0 0 0 0 0>,
+					<0 0 0 1 1 1 1 1>,
 
 					/* Speed bin 1 */
-					<0 0 0 0 0 0 0 0>;
+					<0 0 0 1 1 1 1 1>;
 
 				qcom,cpr-dynamic-floor-corner = <1>;
 			};
