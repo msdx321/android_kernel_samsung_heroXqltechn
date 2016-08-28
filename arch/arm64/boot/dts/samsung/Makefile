@@ -43,7 +43,8 @@ dtb-y = msm8996-sec-heroqlte-jpn-r00.dtb \
 			 msm8996-sec-heroqlte-jpn-r08.dtb \
 			 msm8996-sec-heroqlte-jpn-r10.dtb \
 			 msm8996-sec-heroqlte-jpn-r11.dtb \
-			 msm8996-sec-heroqlte-jpn-r13.dtb 
+			 msm8996-sec-heroqlte-jpn-r13.dtb \
+			 msm8996-sec-heroqlte-jpn-r15.dtb
 endif
 
 ifeq ($(filter y,$(CONFIG_MACH_HERO2QLTE_DCM) $(CONFIG_MACH_HERO2QLTE_KDI)),y)
@@ -73,7 +74,7 @@ dtb-y = msm8996-sec-heroqlte-r00.dtb \
 			 msm8996-sec-heroqlte-chn-r10.dtb \
 			 msm8996-sec-heroqlte-chn-r11.dtb \
 			 msm8996-sec-heroqlte-chn-r13.dtb \
-
+			 msm8996-sec-heroqlte-chn-r15.dtb
 endif
 
 ifeq ($(filter y,$(CONFIG_MACH_HERO2QLTE_CHNZC)),y)
