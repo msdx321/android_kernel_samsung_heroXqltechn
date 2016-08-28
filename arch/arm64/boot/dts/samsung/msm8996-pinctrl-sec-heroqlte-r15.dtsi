@@ -275,26 +275,6 @@
 			};
 		};
 
-		tsp_i2c {
-			tsp_i2c_active: tsp_i2c_active {
-				tsp_i2c {
-					pins = "gpio51", "gpio52";
-					function = "blsp_i2c9";
-					drive-strength = <2>;
-					bias-disable;
-				};
-			};
-
-			tsp_i2c_sleep: tsp_i2c_sleep {
-				tsp_i2c {
-					pins = "gpio51", "gpio52";
-					function = "blsp_i2c9";
-					drive-strength = <2>;
-					bias-pull-down;
-				};
-			};
-		};
-
 		tsp_int {
 			tsp_int_active: tsp_int_active {
 				tsp_int_active {
@@ -307,7 +287,7 @@
 				tsp_int_suspend {
 					pins = "gpio123";
 					drive-strength = <2>;
-					bias-pull-down;
+					bias-disable;
 				};
 			};
 		};
@@ -665,34 +645,14 @@
 			spi_11_sleep: spi_11_sleep {
 				spi_11 {
 					pins = "gpio58", "gpio59", "gpio60", "gpio61";
-					function = "blsp_spi11";
+					function = "gpio";
 					drive-strength = <6>;
-					bias-disable;
+					bias-pull-down;
+					input-low;
 				};
 			};
 		};
 
-<<<<<<< HEAD
-		vfsspi_drdypin {
-			vfsspi_drdypin_active: vfsspi_drdypin_active {
-				vfsspi_drdypin {
-					pins = "gpio131";
-					drive-strength = <2>;
-					bias-pull-down;
-				};
-			};
-
-			vfsspi_drdypin_suspend: vfsspi_drdypin_suspend {
-				vfsspi_drdypin {
-					pins = "gpio131";
-					drive-strength = <2>;
-					bias-pull-down;
-				};
-			};
-		};
-
-=======
->>>>>>> 9b8da37... Upgrade to PH1
 		dbmd4 {
 			dbmdx_active: dbmdx_active {
 				dbmd4 {

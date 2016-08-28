@@ -19,8 +19,8 @@
  * Implement here Samsung specific dtsi
  */
 
-#include "msm8996-pinctrl-sec-heroqlte-r05.dtsi"
-#include "msm8996-sec-heroqlte-battery-r05.dtsi"
+#include "msm8996-pinctrl-sec-heroqlte-r15.dtsi"
+#include "msm8996-sec-heroqlte-common-battery.dtsi"
 #include "msm8996-heroq_fingerprint-sensor_03.dtsi"
 #include "msm8996-max77854-heroqlte.dtsi"
 #include "msm8996-camera-sensor-hero2q-r00.dtsi"
@@ -38,6 +38,7 @@
 	status = "disabled";
 };
 &sdhc_2 {
+	sec,tflash-en-gpio = <&tlmm 89 0x0>;
 	status = "okay";
 };
 
@@ -174,7 +175,7 @@
 					0x80103015>;
 		va-speeds = <0x0000 460800   0 960000
 					0x0000 2000000 0 4800000
-					0x0000 3000000 0 4800000>;
+			     0x0000 3000000 0 4800000>;
 		va-mic-config = <0xf041 0x1044 0x0008>;
 		va-mic-mode = <0>;
 		/* vqe-config = < >; */
@@ -463,19 +464,20 @@
 		qcom,therm-vadc = <&pm8994_vadc>;
 		status = "okay";
 		adc_channel = <115>;
-
-		adc_array = <25864 25887 25910 25932 25955 25978 26026 26074 26122 26170
-				26218 26274 26331 26387 26444 26500 26573 26645 26718 26790
-				26863 26937 27012 27086 27161 27236 27344 27452 27560 27669
-				27777 27889 28001 28113 28225 28337 28467 28598 28728 28859
-				28989 29138 29288 29437 29587 29736 29888 30041 30193 30345
-				30498 30680 30863 31045 31228 31411 31603 31795 31987 32179
-				32372 32554 32737 32919 33102 33284 33487 33691 33894 34098
-				34301 34580 34860 35139 35419 35698 35916 36135 36353 36571
-				36790 36938 37086 37235 37383 37532 37734 37937 38138 38339
-				38541
-				38753 38965 39177 39352 39527 39671 39815 39959 40103 40248
-				40332 40416 40500 40585 40669 40809 40949 41089 41229 41369 >;
+		adc_array = <25799 25825 25852 25879 25906 25933 25991 26050
+				  	 26109 26168 26227 26264 26301 26338 26375 26413
+				  	 26492 26571 26651 26730 26810 26882 26954 27026
+				  	 27098 27170 27256 27343 27430 27517 27604 27700
+				  	 27797 27893 27990 28087 28229 28371 28513 28655
+				  	 28797 28856 28915 28975 29034 29094 29301 29508
+				  	 29715 29922 30130 30325 30520 30715 30910 31105
+				  	 31353 31602 31851 32100 32349 32491 32633 32776
+				  	 32918 33061 33246 33431 33616 33801 33986 34214
+				  	 34443 34672 34901 35130 35395 35660 35926 36191
+				  	 36457 36671 36885 37099 37313 37528 37734 37941
+				  	 38148 38355 38562 38741 38920 39099 39278 39457
+				  	 39585 39714 39842 39971 40100 40213 40327 40441
+				  	 40555 40669 40714 40759 40805 40850 40896 >;
 
 		temp_array = <900 890 880 870 860 850 840 830 820 810
 			800 790 780 770 760 750 740 730 720 710
@@ -486,9 +488,9 @@
 			300 290 280 270 260 250 240 230 220 210
 			200 190 180 170 160 150 140 130 120 110
 			100 90 80 70 60 50 40 30 20 10
-			0
-			(-10) (-20) (-30) (-40) (-50) (-60) (-70) (-80) (-90) (-100)
-			(-110) (-120) (-130) (-140) (-150) (-160) (-170) (-180) (-190) (-200)>;
+			0 (-10) (-20) (-30) (-40) (-50) (-60) (-70) (-80) (-90)
+			(-100)(-110)(-120)(-130)(-140)(-150)(-160)(-170)(-180)(-190)
+			(-200)>;
 	};
 
 	usb_noti: usb-notifier {
@@ -891,40 +893,16 @@
 };
 
 &i2c_9 {
-	fts_i2c@49 {
-		compatible = "stm,fts_ts";
-		reg = <0x49>;
-		interrupt-parent = <&tlmm>;
-		interrupts = <123 0x0>;
-		avdd-supply = <&max77838_l4>;
-		vddo-supply = <&max77838_l2>;
-		pinctrl-names = "tsp_active", "tsp_suspend";
-		pinctrl-0 = <&tsp_int_active &tsp_i2c_active>;
-		pinctrl-1 = <&tsp_int_suspend &tsp_i2c_sleep>;
-		stm,irq-gpio = <&tlmm 123 0x0>;
-		stm,tsp-coords = <1440 2560>;
-		stm,grip_area = <512>;
-		stm,i2c-pull-up = <1>;
-		stm,tsp-project = "ZERO_F";
-		stm,tsp-model = "G925";
-		stm,bringup = <0>;
-		stm,support_gesture = <1>;
-		stm,string-lib;
-		clock-names = "iface_clk", "core_clk";
-		clocks = <&clock_gcc clk_gcc_blsp2_ahb_clk>,
-			<&clock_gcc clk_gcc_blsp2_qup3_i2c_apps_clk>;
-	};
-
 	sec_ts@48 {
 		compatible = "sec,sec_ts";
 		reg = <0x48>;
 		interrupt-parent = <&tlmm>;
 		interrupts = <123 0x0>;
-		avdd-supply = <&max77838_l4>;
-		vddo-supply = <&max77838_l2>;
+		avdd-supply = <&pm8994_l18>;
+		vddo-supply = <&pm8994_l14>;
 		pinctrl-names = "tsp_active", "tsp_suspend";
-		pinctrl-0 = <&tsp_int_active &tsp_i2c_active>;
-		pinctrl-1 = <&tsp_int_suspend &tsp_i2c_sleep>;
+		pinctrl-0 = <&tsp_int_active>;
+		pinctrl-1 = <&tsp_int_suspend>;
 		sec,irq_gpio = <&tlmm 123 0x0>;
 		sec,max_coords = <4096 4096>;
 		sec,grip_area = <512>;
@@ -933,7 +911,7 @@
 		sec,tsp-model = "G930";
 		sec,i2c-burstmax = <256>;
 		sec,bringup = <0>;
-		sec,firmware_name = "tsp_sec/sec_hero.fw";
+		sec,firmware_name = "tsp_sec/sec_hero_octa.fw";
 		clock-names = "iface_clk", "core_clk";
 		clocks = <&clock_gcc clk_gcc_blsp2_ahb_clk>,
 			<&clock_gcc clk_gcc_blsp2_qup3_i2c_apps_clk>;
@@ -943,12 +921,6 @@
 &bluetooth {	/* same gpio with tsp-int: gpio46 */
 	/delete-property/ pinctrl-names;
 	/delete-property/ pinctrl-0;
-};
-
-&slim_msm {
-	tasha_codec {
-		cdc-s4-mode-supply = <&pm8994_s4>;
-	};
 };
 
 &pm8994_mpps {
@@ -1104,17 +1076,6 @@
 		status = "okay";
 	};
 
-<<<<<<< HEAD
-	gpio@cb00 { /* GPIO 12 */
-		qcom,mode = <0>;		/* Digital in */
-		qcom,pull = <4>;		/* QPNP_PIN_PULL_DN */
-		qcom,vin-sel = <2>;		/* Logical 1 voltage value 1.8v */
-		qcom,src-sel = <0>;		/* Constant */
-		status = "okay";
-	};
-
-=======
->>>>>>> 9b8da37... Upgrade to PH1
 	gpio@cc00 { /* GPIO 13 */
 		qcom,mode = <0>;		/* Digital in */
 		qcom,pull = <5>;		/* QPNP_PIN_PULL_NO */
@@ -1157,7 +1118,7 @@
 
 	gpio@d500 { /* GPIO 22 */
 		qcom,mode = <0>;		/* Digital in */
-		qcom,pull = <5>;		/* QPNP_PIN_PULL_NO */
+		qcom,pull = <4>;		/* QPNP_PIN_PULL_DN */
 		qcom,vin-sel = <2>;		/* Logical 1 voltage value 1.8v */
 		qcom,src-sel = <0>;		/* Constant */
 		status = "okay";
@@ -1176,7 +1137,7 @@
 	status = "okay";
 	regulator-min-microvolt = <1800000>;
 	regulator-max-microvolt = <1800000>;
-	qcom,init-voltage = <1800000>;
+	qcom,init-voltage = <1800000>;	
 };
 
 &pm8994_l22 {
@@ -1207,7 +1168,16 @@
 	regulator-min-microvolt = <1800000>;
 	regulator-max-microvolt = <1800000>;
 	qcom,init-voltage = <1800000>;
-	regulator-boot-on;
+	/delete-property/ proxy-supply;
+	/delete-property/ qcom,proxy-consumer-enable;
+	/delete-property/ qcom,proxy-consumer-current;
+};
+
+&pm8994_l18 {
+	status = "okay";
+	regulator-min-microvolt = <3300000>;
+	regulator-max-microvolt = <3300000>;
+	qcom,init-voltage = <3300000>;
 };
 
 &pm8994_l19 {
@@ -1371,6 +1341,7 @@
 		};
 	};
 };
+
 
 &max77838_l1 {
 	regulator-boot-on;

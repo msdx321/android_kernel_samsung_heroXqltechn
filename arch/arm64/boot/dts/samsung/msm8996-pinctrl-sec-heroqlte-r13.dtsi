@@ -673,6 +673,7 @@
 			};
 		};
 
+<<<<<<< HEAD
 		vfsspi_drdypin {
 			vfsspi_drdypin_active: vfsspi_drdypin_active {
 				vfsspi_drdypin {
@@ -691,6 +692,8 @@
 			};
 		};
 
+=======
+>>>>>>> 9b8da37... Upgrade to PH1
 		dbmd4 {
 			dbmdx_active: dbmdx_active {
 				dbmd4 {

@@ -1083,6 +1083,7 @@
 		status = "okay";
 	};
 
+<<<<<<< HEAD
 	gpio@cb00 { /* GPIO 12 */
 		qcom,mode = <0>;		/* Digital in */
 		qcom,pull = <4>;		/* QPNP_PIN_PULL_DN */
@@ -1091,6 +1092,8 @@
 		status = "okay";
 	};
 
+=======
+>>>>>>> 9b8da37... Upgrade to PH1
 	gpio@cd00 { /* GPIO 14 */
 		qcom,mode = <0>;		/* Digital in */
 		qcom,pull = <5>;		/* QPNP_PIN_PULL_NO */
