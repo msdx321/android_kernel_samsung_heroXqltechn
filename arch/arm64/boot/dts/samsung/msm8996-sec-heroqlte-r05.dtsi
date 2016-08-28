@@ -1104,17 +1104,6 @@
 		status = "okay";
 	};
 
-<<<<<<< HEAD
-	gpio@cb00 { /* GPIO 12 */
-		qcom,mode = <0>;		/* Digital in */
-		qcom,pull = <4>;		/* QPNP_PIN_PULL_DN */
-		qcom,vin-sel = <2>;		/* Logical 1 voltage value 1.8v */
-		qcom,src-sel = <0>;		/* Constant */
-		status = "okay";
-	};
-
-=======
->>>>>>> 9b8da37... Upgrade to PH1
 	gpio@cc00 { /* GPIO 13 */
 		qcom,mode = <0>;		/* Digital in */
 		qcom,pull = <5>;		/* QPNP_PIN_PULL_NO */

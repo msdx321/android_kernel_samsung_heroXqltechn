@@ -75,6 +75,7 @@ dtb-y = msm8996-sec-heroqlte-r00.dtb \
 			 msm8996-sec-heroqlte-chn-r11.dtb \
 			 msm8996-sec-heroqlte-chn-r13.dtb \
 			 msm8996-sec-heroqlte-chn-r15.dtb
+
 endif
 
 ifeq ($(filter y,$(CONFIG_MACH_HERO2QLTE_CHNZC)),y)

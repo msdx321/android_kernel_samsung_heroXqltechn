@@ -673,27 +673,6 @@
 			};
 		};
 
-<<<<<<< HEAD
-		vfsspi_drdypin {
-			vfsspi_drdypin_active: vfsspi_drdypin_active {
-				vfsspi_drdypin {
-					pins = "gpio131";
-					drive-strength = <2>;
-					bias-pull-down;
-				};
-			};
-
-			vfsspi_drdypin_suspend: vfsspi_drdypin_suspend {
-				vfsspi_drdypin {
-					pins = "gpio131";
-					drive-strength = <2>;
-					bias-pull-down;
-				};
-			};
-		};
-
-=======
->>>>>>> 9b8da37... Upgrade to PH1
 		dbmd4 {
 			dbmdx_active: dbmdx_active {
 				dbmd4 {
