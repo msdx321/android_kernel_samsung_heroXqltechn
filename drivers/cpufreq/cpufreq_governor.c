@@ -264,6 +264,7 @@ static void set_sampling_rate(struct dbs_data *dbs_data,
 		struct cs_dbs_tuners *cs_tuners = dbs_data->tuners;
 		cs_tuners->sampling_rate = max(cs_tuners->sampling_rate,
 			sampling_rate);
+		cs_tuners->sampling_rate = sampling_rate;
 	} else if (dbs_data->cdata->governor == GOV_ALUCARD) {
 		struct ac_dbs_tuners *ac_tuners = dbs_data->tuners;
 		ac_tuners->sampling_rate = max(ac_tuners->sampling_rate, 
@@ -276,7 +277,6 @@ static void set_sampling_rate(struct dbs_data *dbs_data,
 		struct nm_dbs_tuners *nm_tuners = dbs_data->tuners;
 		nm_tuners->sampling_rate = max(nm_tuners->sampling_rate, 
 			sampling_rate);
-		cs_tuners->sampling_rate = sampling_rate;
 	} else if (dbs_data->cdata->governor == GOV_ELEMENTALX) {
 		struct ex_dbs_tuners *ex_tuners = dbs_data->tuners;
 		ex_tuners->sampling_rate = sampling_rate;
