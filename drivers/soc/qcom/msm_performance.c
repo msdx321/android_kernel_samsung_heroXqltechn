@@ -26,7 +26,6 @@
 #include <linux/kthread.h>
 
 static struct mutex managed_cpus_lock;
-static int touchboost = 1;
 
 /* Maximum number to clusters that this module will manage*/
 static unsigned int num_clusters;
@@ -139,29 +138,6 @@ static struct task_struct *notify_thread;
 #define LAST_LD_CHECK_TOL	(2 * USEC_PER_MSEC)
 
 /**************************sysfs start********************************/
-
-static int set_touchboost(const char *buf, const struct kernel_param *kp)
-{
-	int val;
-
-	if (sscanf(buf, "%d\n", &val) != 1)
-		return -EINVAL;
-
-	touchboost = val;
-
-	return 0;
-}
-
-static int get_touchboost(char *buf, const struct kernel_param *kp)
-{
-	return snprintf(buf, PAGE_SIZE, "%d", touchboost);
-}
-
-static const struct kernel_param_ops param_ops_touchboost = {
-	.set = set_touchboost,
-	.get = get_touchboost,
-};
-device_param_cb(touchboost, &param_ops_touchboost, NULL, 0644);
 
 static int set_num_clusters(const char *buf, const struct kernel_param *kp)
 {
@@ -352,10 +328,6 @@ static int set_cpu_min_freq(const char *buf, const struct kernel_param *kp)
 	struct cpufreq_policy policy;
 	cpumask_var_t limit_mask;
 	int ret;
-	const char *reset = "0:0 4:0";
-
-	if (touchboost == 0)
-		cp = reset;
 
 	while ((cp = strpbrk(cp + 1, " :")))
 		ntokens++;
@@ -364,11 +336,7 @@ static int set_cpu_min_freq(const char *buf, const struct kernel_param *kp)
 	if (!(ntokens % 2))
 		return -EINVAL;
 
-	if (touchboost == 0)
-		cp = reset;
-	else
-		cp = buf;
-
+	cp = buf;
 	cpumask_clear(limit_mask);
 	for (i = 0; i < ntokens; i += 2) {
 		if (sscanf(cp, "%u:%u", &cpu, &val) != 2)
