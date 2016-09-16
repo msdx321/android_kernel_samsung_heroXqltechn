@@ -9,7 +9,8 @@ BUILDING_DIR=$OUT_DIR/kernel_obj
 
 JOB_NUMBER=`grep processor /proc/cpuinfo|wc -l`
 
-CROSS_COMPILER=$ROOT_DIR/lazy-prebuilt/aarch64-linux-android-4.9/bin/aarch64-linux-android-
+#CROSS_COMPILER=$ROOT_DIR/lazy-prebuilt/aarch64-linux-android-4.9/bin/aarch64-linux-android-
+CROSS_COMPILER=$ROOT_DIR/lazy-prebuilt/aarch64-linaro-4.9/bin/aarch64-linux-gnu-
 
 DTBTOOL=$ROOT_DIR/lazy-prebuilt/bin/dtbTool
 DTS_DIR=$BUILDING_DIR/arch/arm64/boot/dts/samsung
