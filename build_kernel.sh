@@ -1,11 +1,49 @@
 #!/bin/bash
 
-export PATH=$(pwd)/../PLATFORM/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin:$PATH 
-export SEC_BUILD_OPTION_HW_REVISION=02
+export ARCH=arm64
 
-mkdir out
+ROOT_DIR=$(pwd)
+OUT_DIR=$ROOT_DIR/out
+BUILDING_DIR=$OUT_DIR/kernel_obj
 
-make -C $(pwd) O=$(pwd)/out ARCH=arm64 CROSS_COMPILE=aarch64-linux-android- KCFLAGS=-mno-android hero2qlte_chnzc_defconfig
-make -C $(pwd) O=$(pwd)/out ARCH=arm64 CROSS_COMPILE=aarch64-linux-android- KCFLAGS=-mno-android
+JOB_NUMBER=`grep processor /proc/cpuinfo|wc -l`
 
-cp out/arch/arm64/boot/Image $(pwd)/arch/arm64/boot/Image
+CROSS_COMPILER=$ROOT_DIR/lazy-prebuilt/aarch64-linux-android-4.9/bin/aarch64-linux-android-
+
+#DTBTOOL=$ROOT_DIR/lazy-prebuilt/bin/dtbTool
+#DTS_DIR=
+
+DEFCONFIG=$1
+
+FUNC_PRINT()
+{
+		echo ""
+		echo "=============================================="
+		echo $1
+		echo "=============================================="
+		echo ""
+}
+
+FUNC_CLEAN()
+{
+		FUNC_PRINT "Cleaning All"
+		rm -rf $OUT_DIR
+		mkdir $OUT_DIR
+		mkdir -p $BUILDING_DIR
+}
+
+FUNC_COMPILE_KERNEL()
+{
+		FUNC_PRINT "Start Compiling Kernel"
+		make -C $ROOT_DIR O=$BUILDING_DIR $DEFCONFIG 
+		make -C $ROOT_DIR O=$BUILDING_DIR -j$JOB_NUMBER ARCH=arm64 CROSS_COMPILE=$CROSS_COMPILER
+		FUNC_PRINT "Finish Compiling Kernel"
+}
+
+START_TIME=`date +%s`
+FUNC_CLEAN
+FUNC_COMPILE_KERNEL
+END_TIME=`date +%s`
+
+let "ELAPSED_TIME=$END_TIME-$START_TIME"
+echo "Total compile time is $ELAPSED_TIME seconds"
