@@ -10,8 +10,11 @@ JOB_NUMBER=`grep processor /proc/cpuinfo|wc -l`
 
 CROSS_COMPILER=$ROOT_DIR/lazy-prebuilt/aarch64-linux-android-4.9/bin/aarch64-linux-android-
 
-#DTBTOOL=$ROOT_DIR/lazy-prebuilt/bin/dtbTool
-#DTS_DIR=
+DTBTOOL=$ROOT_DIR/lazy-prebuilt/bin/dtbTool
+DTS_DIR=$BUILDING_DIR/arch/arm64/boot/dts/samsung
+
+ANYKERNEL_DIR=$ROOT_DIR/anykernel-prebuilt
+TEMP_DIR=$OUT_DIR/temp
 
 DEFCONFIG=$1
 
@@ -30,6 +33,7 @@ FUNC_CLEAN()
 		rm -rf $OUT_DIR
 		mkdir $OUT_DIR
 		mkdir -p $BUILDING_DIR
+		mkdir -p $TEMP_DIR
 }
 
 FUNC_COMPILE_KERNEL()
@@ -40,9 +44,31 @@ FUNC_COMPILE_KERNEL()
 		FUNC_PRINT "Finish Compiling Kernel"
 }
 
+FUNC_BUILD_DTB()
+{
+		FUNC_PRINT "Building DTB"
+		$DTBTOOL -v -s 2048 -o $TEMP_DIR/dtb $DTS_DIR/
+}
+
+FUNC_PACK()
+{
+		FUNC_PRINT "Start Packing"
+		cp -r $ANYKERNEL_DIR/* $TEMP_DIR
+		cp $BUILDING_DIR/arch/arm64/boot/Image.gz $TEMP_DIR/zImage
+		mkdir $TEMP_DIR/modules
+		find . -type f -name "*.ko" | xargs cp -t $TEMP_DIR/modules
+		cd $TEMP_DIR
+		zip -r BKernel.zip ./*
+		mv BKernel.zip $OUT_DIR/BKernel.zip
+		cd $ROOT_DIR
+		FUNC_PRINT "Finish Packing"
+}
+
 START_TIME=`date +%s`
 FUNC_CLEAN
 FUNC_COMPILE_KERNEL
+FUNC_BUILD_DTB
+FUNC_PACK
 END_TIME=`date +%s`
 
 let "ELAPSED_TIME=$END_TIME-$START_TIME"
