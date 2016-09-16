@@ -1,6 +1,7 @@
 #!/bin/bash
 
 export ARCH=arm64
+export SEC_BUILD_OPTION_HW_REVISION=02
 
 ROOT_DIR=$(pwd)
 OUT_DIR=$ROOT_DIR/out
