@@ -114,6 +114,7 @@ struct csid_device {
 	struct msm_camera_csid_testmode_parms testmode_params;
 	uint32_t csid_sof_debug;
 	uint32_t csid_lane_cnt;
+	uint32_t ddirqcounter;
 };
 
 #define VIDIOC_MSM_CSID_RELEASE \

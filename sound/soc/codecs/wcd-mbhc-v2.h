@@ -352,6 +352,13 @@ struct wcd_mbhc_cb {
 	void (*hph_pull_down_ctrl)(struct snd_soc_codec *, bool);
 };
 
+#if defined(CONFIG_SND_SOC_WCD_MBHC_ADC)
+struct jack_zone {
+	unsigned int adc_high;
+	unsigned int jack_type;
+};
+#endif
+
 struct wcd_mbhc {
 	/* Delayed work to report long button press */
 	struct delayed_work mbhc_btn_dwork;
@@ -391,6 +398,8 @@ struct wcd_mbhc {
 	/* impedance of hphl and hphr */
 	uint32_t zl, zr;
 	bool impedance_detect;
+	/* Samsung impedance detection and additional digital gain */
+	int impedance_offset;
 
 	/* Holds type of Headset - Mono/Stereo */
 	enum wcd_mbhc_hph_type hph_type;
@@ -411,6 +420,15 @@ struct wcd_mbhc {
 	struct mutex hphr_pa_lock;
 
 	struct completion btn_press_compl;
+#if defined(CONFIG_SND_SOC_WCD_MBHC_ADC)
+	int debounce_time_ms;
+	int mpp_ch_scale[3];
+	struct qpnp_vadc_chip *earjack_vadc;
+	struct jack_zone jack_zones[4];
+#endif
+#if defined(CONFIG_SND_SOC_WCD_MBHC_SLOW_DET)
+	bool slow_insertion;
+#endif
 };
 #define WCD_MBHC_CAL_SIZE(buttons, rload) ( \
 	sizeof(struct wcd_mbhc_general_cfg) + \

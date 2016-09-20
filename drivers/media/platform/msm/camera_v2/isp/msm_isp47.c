@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -175,6 +175,7 @@ static int msm_vfe47_init_hardware(struct vfe_device *vfe_dev)
 		pr_err("%s: failed to vote for AHB\n", __func__);
 		goto ahb_vote_fail;
 	}
+	vfe_dev->ahb_vote = CAMERA_AHB_SVS_VOTE;
 
 	rc = msm_isp_init_bandwidth_mgr(ISP_VFE0 + vfe_dev->pdev->id);
 	if (rc < 0) {
@@ -317,7 +318,10 @@ camss_vdd_regulator_failed:
 	vfe_dev->fs_vfe = NULL;
 	msm_isp_deinit_bandwidth_mgr(ISP_VFE0 + vfe_dev->pdev->id);
 bus_scale_register_failed:
-	cam_config_ahb_clk(CAM_AHB_CLIENT_VFE, CAMERA_AHB_SUSPEND_VOTE);
+	if (cam_config_ahb_clk(CAM_AHB_CLIENT_VFE, CAMERA_AHB_SUSPEND_VOTE)) {
+		pr_err("%s: failed to vote for AHB\n", __func__);
+	}
+	vfe_dev->ahb_vote = CAMERA_AHB_SUSPEND_VOTE;
 ahb_vote_fail:
 	return rc;
 }
@@ -359,6 +363,7 @@ static void msm_vfe47_release_hardware(struct vfe_device *vfe_dev)
 
 	if (cam_config_ahb_clk(CAM_AHB_CLIENT_VFE, CAMERA_AHB_SUSPEND_VOTE) < 0)
 		pr_err("%s: failed to vote for AHB\n", __func__);
+	vfe_dev->ahb_vote = CAMERA_AHB_SUSPEND_VOTE;
 }
 
 static void msm_vfe47_init_hardware_reg(struct vfe_device *vfe_dev)
@@ -649,11 +654,11 @@ static void msm_vfe47_process_epoch_irq(struct vfe_device *vfe_dev,
 		return;
 
 	if (irq_status0 & BIT(2)) {
-		msm_isp_notify(vfe_dev, ISP_EVENT_SOF, VFE_PIX_0, ts);
 		ISP_DBG("%s: EPOCH0 IRQ\n", __func__);
 		msm_isp_update_framedrop_reg(vfe_dev, VFE_PIX_0);
 		msm_isp_update_stats_framedrop_reg(vfe_dev);
 		msm_isp_update_error_frame_count(vfe_dev);
+		msm_isp_notify(vfe_dev, ISP_EVENT_SOF, VFE_PIX_0, ts);
 		if (vfe_dev->axi_data.src_info[VFE_PIX_0].raw_stream_count > 0
 			&& vfe_dev->axi_data.src_info[VFE_PIX_0].
 			pix_stream_count == 0) {

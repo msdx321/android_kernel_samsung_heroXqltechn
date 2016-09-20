@@ -479,7 +479,7 @@ static int msm_fd_hw_misc_irq_supported(struct msm_fd_device *fd)
  * msm_fd_hw_halt - Halt fd core.
  * @fd: Pointer to fd device.
  */
-static void msm_fd_hw_halt(struct msm_fd_device *fd)
+void msm_fd_hw_halt(struct msm_fd_device *fd)
 {
 	unsigned long time;
 
@@ -493,6 +493,13 @@ static void msm_fd_hw_halt(struct msm_fd_device *fd)
 		if (!time)
 			dev_err(fd->dev, "Face detection halt timeout\n");
 
+		/* Reset sequence after halt */
+		msm_fd_hw_write_reg(fd, MSM_FD_IOMEM_MISC, MSM_FD_MISC_SW_RESET,
+			MSM_FD_MISC_SW_RESET_SET);
+		msm_fd_hw_write_reg(fd, MSM_FD_IOMEM_CORE, MSM_FD_CONTROL,
+			MSM_FD_CONTROL_SRST);
+		msm_fd_hw_write_reg(fd, MSM_FD_IOMEM_MISC, MSM_FD_MISC_SW_RESET, 0);
+		msm_fd_hw_write_reg(fd, MSM_FD_IOMEM_CORE, MSM_FD_CONTROL, 0);
 	}
 }
 
@@ -1174,7 +1181,6 @@ static int msm_fd_hw_bus_request(struct msm_fd_device *fd, unsigned int idx)
 		dev_err(fd->dev, "Fail bus scale update %d\n", ret);
 		return -EINVAL;
 	}
-
 	return 0;
 }
 
@@ -1188,6 +1194,46 @@ static void msm_fd_hw_bus_release(struct msm_fd_device *fd)
 		msm_bus_scale_unregister_client(fd->bus_client);
 		fd->bus_client = 0;
 	}
+}
+
+/*
+ * msm_fd_hw_update_clockrate - API to set clock rate
+ * @fd: Pointer to fd device.
+ * @buf: fd buffer
+ */
+static int msm_fd_hw_update_settings(struct msm_fd_device *fd,
+				struct msm_fd_buffer *buf)
+{
+	int ret = 0;
+	uint32_t clk_rate_idx;
+
+	if (!buf)
+		return 0;
+
+	clk_rate_idx = buf->settings.speed;
+	if (fd->clk_rate_idx == clk_rate_idx)
+		return 0;
+
+	if (fd->bus_client) {
+		ret = msm_bus_scale_client_update_request(fd->bus_client,
+			clk_rate_idx);
+		if (ret < 0) {
+			dev_err(fd->dev, "Fail bus scale update %d\n", ret);
+			return -EINVAL;
+		}
+	}
+
+	ret = msm_fd_hw_set_clock_rate_idx(fd, clk_rate_idx);
+	if (ret < 0) {
+		dev_err(fd->dev, "Fail to set clock rate idx\n");
+		goto end;
+	}
+	pr_err("%s:%d] set clk %d %d", __func__, __LINE__,
+		fd->clk_rate_idx, clk_rate_idx);
+	fd->clk_rate_idx = clk_rate_idx;
+
+end:
+	return ret;
 }
 
 /*
@@ -1235,6 +1281,8 @@ int msm_fd_hw_get(struct msm_fd_device *fd, unsigned int clock_rate_idx)
 		ret = msm_fd_hw_set_dt_parms(fd);
 		if (ret < 0)
 			goto error_set_dt;
+
+		fd->clk_rate_idx = clock_rate_idx;
 	}
 
 	fd->ref_count++;
@@ -1289,7 +1337,7 @@ void msm_fd_hw_put(struct msm_fd_device *fd)
  */
 static int msm_fd_hw_attach_iommu(struct msm_fd_device *fd)
 {
-	int ret;
+	int ret = 0;
 
 	mutex_lock(&fd->lock);
 
@@ -1503,9 +1551,12 @@ void msm_fd_hw_remove_buffers_from_queue(struct msm_fd_device *fd,
 
 			if (atomic_read(&curr_buff->active))
 				active_buffer = curr_buff;
-			else
+			else {
+				/* Do a Buffer done on all the other buffers */
+				vb2_buffer_done(&curr_buff->vb,
+					VB2_BUF_STATE_DONE);
 				list_del(&curr_buff->list);
-
+			}
 		}
 	}
 	spin_unlock(&fd->slock);
@@ -1577,7 +1628,7 @@ struct msm_fd_buffer *msm_fd_hw_get_active_buffer(struct msm_fd_device *fd)
  */
 int msm_fd_hw_schedule_and_start(struct msm_fd_device *fd)
 {
-	struct msm_fd_buffer *buf;
+	struct msm_fd_buffer *buf = NULL;
 
 	spin_lock(&fd->slock);
 	buf = msm_fd_hw_next_buffer(fd);
@@ -1585,6 +1636,8 @@ int msm_fd_hw_schedule_and_start(struct msm_fd_device *fd)
 		msm_fd_hw_try_enable(fd, buf, MSM_FD_DEVICE_IDLE);
 
 	spin_unlock(&fd->slock);
+
+	msm_fd_hw_update_settings(fd, buf);
 
 	return 0;
 }
@@ -1597,8 +1650,8 @@ int msm_fd_hw_schedule_and_start(struct msm_fd_device *fd)
  */
 int msm_fd_hw_schedule_next_buffer(struct msm_fd_device *fd)
 {
-	struct msm_fd_buffer *buf;
-	int ret;
+	struct msm_fd_buffer *buf = NULL;
+	int ret = 0;
 
 	spin_lock(&fd->slock);
 
@@ -1621,6 +1674,8 @@ int msm_fd_hw_schedule_next_buffer(struct msm_fd_device *fd)
 		fd->state = MSM_FD_DEVICE_IDLE;
 	}
 	spin_unlock(&fd->slock);
+
+	msm_fd_hw_update_settings(fd, buf);
 
 	return 0;
 }

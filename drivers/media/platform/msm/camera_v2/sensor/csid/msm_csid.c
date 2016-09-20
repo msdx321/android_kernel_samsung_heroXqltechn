@@ -360,6 +360,9 @@ static int msm_csid_config(struct csid_device *csid_dev,
 		pr_err("%s:%d config cid lut failed\n", __func__, __LINE__);
 		return rc;
 	}
+	pr_err("%s csid_config irq_cnt = %d\n", __func__,
+		csid_dev->ddirqcounter);
+	csid_dev->ddirqcounter = 0;
 	msm_csid_set_debug_reg(csid_dev, csid_params);
 
 	if (csid_dev->is_testmode == 1)
@@ -394,10 +397,17 @@ static irqreturn_t msm_csid_irq(int irq_num, void *data)
 			csid_reg.csid_captured_short_pkt_addr);
 		count = (short_dt >> 8) & 0xffff;
 		dt =  short_dt >> 24;
-		CDBG("CSID:: %s:%d core %d dt: 0x%x, count: %d\n",
-			__func__, __LINE__, csid_dev->pdev->id, dt, count);
+		/* CDBG("CSID:: %s:%d core %d dt: 0x%x, count: %d\n",
+			__func__, __LINE__, csid_dev->pdev->id, dt, count); */
+		if (csid_dev->ddirqcounter++ < 13)
+			pr_err("CSID:: %s:%d core %d dt: 0x%x, count: %d irqcnt=%d\n",
+			__func__, __LINE__, csid_dev->pdev->id, dt, count, csid_dev->ddirqcounter);
 		msm_camera_io_w(0x101, csid_dev->base +
 		csid_dev->ctrl_reg->csid_reg.csid_rst_cmd_addr);
+	}
+	if (csid_dev->ddirqcounter == 500) {
+		pr_err("%s:%d Reset cnt\n", __func__, __LINE__);
+		csid_dev->ddirqcounter = 0;
 	}
 	msm_camera_io_w(irq, csid_dev->base +
 		csid_dev->ctrl_reg->csid_reg.csid_irq_clear_cmd_addr);
@@ -542,6 +552,7 @@ static int msm_csid_init(struct csid_device *csid_dev, uint32_t *csid_version)
 
 	init_completion(&csid_dev->reset_complete);
 
+	csid_dev->ddirqcounter = 0;
 	enable_irq(csid_dev->irq->start);
 
 	rc = msm_csid_reset(csid_dev);
@@ -605,7 +616,7 @@ static int msm_csid_release(struct csid_device *csid_dev)
 		return -EINVAL;
 	}
 
-	CDBG("%s:%d, hw_version = 0x%x\n", __func__, __LINE__,
+	pr_err("%s:%d, hw_version = 0x%x\n", __func__, __LINE__,
 		csid_dev->hw_version);
 
 	irq = msm_camera_io_r(csid_dev->base +
@@ -616,6 +627,7 @@ static int msm_csid_release(struct csid_device *csid_dev)
 		csid_dev->ctrl_reg->csid_reg.csid_irq_mask_addr);
 
 	disable_irq(csid_dev->irq->start);
+	csid_dev->ddirqcounter = 0;
 
 	if (csid_dev->hw_version == CSID_VERSION_V20) {
 		msm_cam_clk_enable(&csid_dev->pdev->dev, csid_clk_info,

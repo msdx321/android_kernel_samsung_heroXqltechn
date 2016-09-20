@@ -272,6 +272,7 @@ struct wcd9xxx {
 
 	u32 num_of_supplies;
 	struct regulator_bulk_data *supplies;
+	struct rpm_regulator *s4_mode_regulator;
 
 	struct wcd9xxx_core_resource core_res;
 

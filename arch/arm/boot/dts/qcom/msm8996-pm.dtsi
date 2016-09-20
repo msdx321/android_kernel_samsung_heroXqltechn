@@ -299,6 +299,7 @@
 			<0xff 94>,  /* osmmu_CIrpt[0] */
 			<0xff 97>,  /* iommu_nonsecure_irq */
 			<0xff 99>,  /* msm_iommu_pmon_nonsecure_irq */
+			<0xff 101>,  /* osmmu_CIrpt[0] */
 			<0xff 102>, /* osmmu_CIrpt[1] */
 			<0xff 105>, /* iommu_pmon_nonsecure_irq */
 			<0xff 108>, /* osmmu_PMIrpt */
@@ -385,8 +386,10 @@
 			<0xff 330>, /* camss_irq4 */
 			<0xff 331>, /* camss_irq5 */
 			<0xff 332>, /* sps */
+			<0xff 336>, /* camss_irq13 */
 			<0xff 346>, /* camss_irq8 */
 			<0xff 347>, /* camss_irq9 */
+			<0xff 348>, /* camss_irq10 */
 			<0xff 352>, /* mdss_mmu_cirpt[0] */
 			<0xff 353>, /* mdss_mmu_cirpt[1] */
 			<0xff 361>, /* ogpu_mmu_cirpt[0] */

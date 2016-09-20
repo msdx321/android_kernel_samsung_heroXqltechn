@@ -333,12 +333,15 @@ static void mdss_mdp_pipe_nrt_vbif_setup(struct mdss_data_type *mdata,
 	mutex_lock(&mdata->reg_lock);
 	nrt_vbif_client_sel = readl_relaxed(mdata->mdp_base +
 				MMSS_MDP_RT_NRT_VBIF_CLIENT_SEL);
+	MDSS_XLOG(pipe->num, nrt_vbif_client_sel, 0x111);
 	if (mdss_mdp_is_nrt_vbif_client(mdata, pipe))
 		nrt_vbif_client_sel |= BIT(pipe->num - MDSS_MDP_SSPP_DMA0);
 	else
 		nrt_vbif_client_sel &= ~BIT(pipe->num - MDSS_MDP_SSPP_DMA0);
 	writel_relaxed(nrt_vbif_client_sel,
 			mdata->mdp_base + MMSS_MDP_RT_NRT_VBIF_CLIENT_SEL);
+	MDSS_XLOG(pipe->num, nrt_vbif_client_sel, mdss_mdp_is_nrt_vbif_client(mdata, pipe),
+		0x222);
 	mutex_unlock(&mdata->reg_lock);
 
 	return;
@@ -1826,7 +1829,6 @@ static int mdss_mdp_image_setup(struct mdss_mdp_pipe *pipe,
 				pipe->num);
 			return -EINVAL;
 		}
-
 		if (pipe->src_split_req && main_ctl->mixer_right->valid_roi) {
 			/*
 			 * pipe is staged on both mixers, expand roi to span
@@ -2202,7 +2204,7 @@ int mdss_mdp_pipe_queue_data(struct mdss_mdp_pipe *pipe,
 	params_changed = (pipe->params_changed) ||
 		((pipe->type == MDSS_MDP_PIPE_TYPE_DMA) &&
 		 (pipe->mixer_left->type == MDSS_MDP_MIXER_TYPE_WRITEBACK) &&
-		 (ctl->mdata->mixer_switched)) || roi_changed;
+		 (ctl->mdata->mixer_switched)) || roi_changed ||(ctl->power_state==MDSS_PANEL_POWER_LP1); 
 
 	if (params_changed) {
 		bool is_realtime = !((ctl->intf_num == MDSS_MDP_NO_INTF)
@@ -2235,7 +2237,7 @@ int mdss_mdp_pipe_queue_data(struct mdss_mdp_pipe *pipe,
 		goto update_nobuf;
 	}
 
-	MDSS_XLOG(pipe->num, pipe->mixer_left->num, pipe->play_cnt, 0x222);
+	MDSS_XLOG(pipe->num, pipe->params_changed, pipe->mixer_left->num, pipe->play_cnt, 0x222);
 
 	if (params_changed) {
 		pipe->params_changed = 0;

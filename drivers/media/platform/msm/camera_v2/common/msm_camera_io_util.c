@@ -25,6 +25,10 @@
 #undef CDBG
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 
+#if defined(CONFIG_SENSOR_RETENTION)
+extern bool sensor_retention_mode;
+#endif
+
 void msm_camera_io_w(u32 data, void __iomem *addr)
 {
 	CDBG("%s: 0x%p %08x\n", __func__,  (addr), (data));
@@ -649,6 +653,22 @@ int msm_camera_config_single_vreg(struct device *dev,
 		}
 		vreg_name = cam_vreg->reg_name;
 	}
+	if (cam_vreg->reg_name != NULL) {
+		CDBG("%s reg_name %s\n", __func__, cam_vreg->reg_name);
+	}
+
+#if defined(CONFIG_SENSOR_RETENTION)
+	/* NOTE: Check cam power for sensor retention*/
+	if (sensor_retention_mode) {
+		if (!strcmp(vreg_name, "s2mpb02-ldo7")) {
+			pr_info("skip cam_vio(s2mpb02-ldo7). now sensor retention mode\n");
+			return 0;
+		} else if (!strcmp(vreg_name, "s2mpb02-ldo17")) {
+			pr_info("skip cam_vdd_ois2(s2mpb02-ldo17). now sensor retention mode\n");
+			return 0;
+		}
+	}
+#endif
 
 	if (config) {
 		CDBG("%s enable %s\n", __func__, vreg_name);

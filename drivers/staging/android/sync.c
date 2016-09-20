@@ -26,6 +26,7 @@
 #include <linux/uaccess.h>
 #include <linux/anon_inodes.h>
 #include <linux/sync.h>
+#include <linux/spinlock.h>
 
 #define CREATE_TRACE_POINTS
 #include "trace/sync.h"
@@ -518,12 +519,16 @@ static const struct fence_ops android_fence_ops = {
 static void sync_fence_free(struct kref *kref)
 {
 	struct sync_fence *fence = container_of(kref, struct sync_fence, kref);
-	int i, status = atomic_read(&fence->status);
+	int i;
+	unsigned long flags;
 
 	for (i = 0; i < fence->num_fences; ++i) {
-		if (status)
-			fence_remove_callback(fence->cbs[i].sync_pt,
+		spin_lock_irqsave(fence->cbs[i].sync_pt->lock, flags);
+		if (atomic_read(&fence->status))
+			fence_remove_callback_locked(fence->cbs[i].sync_pt,
 					      &fence->cbs[i].cb);
+		spin_unlock_irqrestore(fence->cbs[i].sync_pt->lock, flags);
+
 		fence_put(fence->cbs[i].sync_pt);
 	}
 

@@ -1149,6 +1149,19 @@ static void mmc_sd_detect(struct mmc_host *host)
 	BUG_ON(!host);
 	BUG_ON(!host->card);
 
+#if defined(CONFIG_SEC_HYBRID_TRAY)
+	if (host->ops->get_cd && host->ops->get_cd(host) == 0) {
+		mmc_card_set_removed(host->card);
+		mmc_claim_host(host);
+		mmc_power_off(host);
+		mmc_sd_remove(host);
+		mmc_detach_bus(host);
+		mmc_release_host(host);
+		pr_err("%s: card(tray) is removed...\n", mmc_hostname(host));
+		return;
+	}
+#endif
+
 	mmc_get_card(host->card);
 
 	/*
@@ -1249,6 +1262,12 @@ static int _mmc_sd_resume(struct mmc_host *host)
 
 	mmc_claim_host(host);
 
+#if defined(CONFIG_SEC_HYBRID_TRAY)
+	if (host->ops->get_cd && host->ops->get_cd(host) == 0) {
+		printk(KERN_NOTICE "%s is no card...\n", mmc_hostname(host));
+		goto no_card;
+	}
+#endif
 	if (!mmc_card_suspended(host->card))
 		goto out;
 
@@ -1272,6 +1291,9 @@ static int _mmc_sd_resume(struct mmc_host *host)
 	}
 #else
 	err = mmc_sd_init_card(host, host->card->ocr, host->card);
+#endif
+#if defined(CONFIG_SEC_HYBRID_TRAY)
+no_card:
 #endif
 	mmc_card_clr_suspended(host->card);
 

@@ -155,10 +155,12 @@ void inet_sock_destruct(struct sock *sk)
 	if (sk->sk_type == SOCK_STREAM && sk->sk_state != TCP_CLOSE) {
 		pr_err("Attempt to release TCP socket in state %d %p\n",
 		       sk->sk_state, sk);
+		BUG();
 		return;
 	}
 	if (!sock_flag(sk, SOCK_DEAD)) {
 		pr_err("Attempt to release alive inet socket %p\n", sk);
+		BUG();
 		return;
 	}
 
@@ -273,6 +275,9 @@ static int inet_create(struct net *net, struct socket *sock, int protocol,
 	unsigned char answer_flags;
 	int try_loading_module = 0;
 	int err;
+
+	if (protocol < 0 || protocol >= IPPROTO_MAX)
+		return -EINVAL;
 
 	if (!current_has_network())
 		return -EACCES;

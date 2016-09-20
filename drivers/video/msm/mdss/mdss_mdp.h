@@ -55,7 +55,7 @@
 #define C0_G_Y		0	/* G/luma */
 
 /* wait for at most 2 vsync for lowest refresh rate (24hz) */
-#define KOFF_TIMEOUT msecs_to_jiffies(84)
+#define KOFF_TIMEOUT msecs_to_jiffies(1000)
 
 #define OVERFETCH_DISABLE_TOP		BIT(0)
 #define OVERFETCH_DISABLE_BOTTOM	BIT(1)
@@ -131,9 +131,15 @@ enum mdss_mdp_csc_type {
 	MDSS_MDP_CSC_YUV2RGB_601L,
 	MDSS_MDP_CSC_YUV2RGB_601FR,
 	MDSS_MDP_CSC_YUV2RGB_709L,
+	MDSS_MDP_CSC_YUV2RGB_2020L,	
+	MDSS_MDP_CSC_YUV2RGB_2020FR,
+	MDSS_MDP_CSC_YUV2RGB_P3L,
+	MDSS_MDP_CSC_YUV2RGB_P3FR,	
 	MDSS_MDP_CSC_RGB2YUV_601L,
 	MDSS_MDP_CSC_RGB2YUV_601FR,
 	MDSS_MDP_CSC_RGB2YUV_709L,
+	MDSS_MDP_CSC_RGB2YUV_2020L,
+	MDSS_MDP_CSC_RGB2YUV_2020FR,	
 	MDSS_MDP_CSC_YUV2YUV,
 	MDSS_MDP_CSC_RGB2RGB,
 	MDSS_MDP_MAX_CSC
@@ -243,6 +249,12 @@ struct mdss_mdp_ctl_intfs_ops {
 	 */
 	int (*reconfigure)(struct mdss_mdp_ctl *ctl,
 			enum dynamic_switch_modes mode, bool pre);
+	/* called before do any register programming  from commit thread */
+	void (*pre_programming)(struct mdss_mdp_ctl *ctl);
+
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	int (*wait_video_pingpong) (struct mdss_mdp_ctl *ctl, void *arg);
+#endif
 };
 
 struct mdss_mdp_ctl {
@@ -333,9 +345,6 @@ struct mdss_mdp_ctl {
 	struct mdss_rect roi;
 	struct mdss_rect roi_bkup;
 
-	bool cmd_autorefresh_en;
-	int autorefresh_frame_cnt;
-
 	struct blocking_notifier_head notifier_head;
 
 	void *priv_data;
@@ -349,6 +358,7 @@ struct mdss_mdp_ctl {
 
 	u64 last_input_time;
 	int pending_mode_switch;
+	int	mixer_cfg_changed;
 };
 
 struct mdss_mdp_mixer {
@@ -430,6 +440,8 @@ struct mdss_mdp_img_data {
 	unsigned long len;
 	u32 offset;
 	u32 flags;
+	u32 dir;
+	bool rotator_smmu;
 	bool mapped;
 	bool skip_detach;
 	struct fd srcp_f;
@@ -610,7 +622,7 @@ struct mdss_mdp_pipe {
 
 	wait_queue_head_t free_waitq;
 	u32 frame_rate;
-	u8 csc_coeff_set;
+	enum mdp_color_space csc_coeff_set;
 };
 
 struct mdss_mdp_writeback_arg {
@@ -1042,12 +1054,19 @@ static inline uint8_t pp_vig_csc_pipe_val(struct mdss_mdp_pipe *pipe)
 		return MDSS_MDP_CSC_YUV2RGB_601L;
 	case MDP_CSC_ITU_R_601_FR:
 		return MDSS_MDP_CSC_YUV2RGB_601FR;
+	case MDP_CSC_ITU_R_2020:
+		return MDSS_MDP_CSC_YUV2RGB_2020L;
+	case MDP_CSC_ITU_R_2020_FR:
+		return MDSS_MDP_CSC_YUV2RGB_2020FR;
+	case MDP_CSC_ITU_R_P3:
+		return MDSS_MDP_CSC_YUV2RGB_P3L;
+	case MDP_CSC_ITU_R_P3_FR:
+		return MDSS_MDP_CSC_YUV2RGB_P3FR;		
 	case MDP_CSC_ITU_R_709:
 	default:
 		return  MDSS_MDP_CSC_YUV2RGB_709L;
 	}
 }
-
 /*
  * when DUAL_LM_SINGLE_DISPLAY is used with 2 DSC encoders, DSC_MERGE is
  * used during full frame updates. Now when we go from full frame update
@@ -1092,6 +1111,8 @@ int mdss_mdp_hist_irq_enable(u32 irq);
 void mdss_mdp_hist_irq_disable(u32 irq);
 void mdss_mdp_irq_disable_nosync(u32 intr_type, u32 intf_num);
 int mdss_mdp_set_intr_callback(u32 intr_type, u32 intf_num,
+			       void (*fnc_ptr)(void *), void *arg);
+int mdss_mdp_set_intr_callback_nosync(u32 intr_type, u32 intf_num,
 			       void (*fnc_ptr)(void *), void *arg);
 
 void mdss_mdp_footswitch_ctrl_splash(int on);
@@ -1317,6 +1338,7 @@ void mdss_mdp_bwcpanic_ctrl(struct mdss_data_type *mdata, bool enable);
 int mdss_mdp_pipe_destroy(struct mdss_mdp_pipe *pipe);
 int mdss_mdp_pipe_queue_data(struct mdss_mdp_pipe *pipe,
 			     struct mdss_mdp_data *src_data);
+int mdss_mdp_vbif_axi_halt(struct mdss_data_type *mdata);
 
 int mdss_mdp_data_check(struct mdss_mdp_data *data,
 			struct mdss_mdp_plane_sizes *ps,
@@ -1390,10 +1412,10 @@ void mdss_mdp_ctl_restore(bool locked);
 int  mdss_mdp_ctl_reset(struct mdss_mdp_ctl *ctl, bool is_recovery);
 int mdss_mdp_wait_for_xin_halt(u32 xin_id, bool is_vbif_nrt);
 void mdss_mdp_set_ot_limit(struct mdss_mdp_set_ot_params *params);
-int mdss_mdp_cmd_set_autorefresh_mode(struct mdss_mdp_ctl *ctl,
-		int frame_cnt);
-int mdss_mdp_ctl_cmd_autorefresh_enable(struct mdss_mdp_ctl *ctl,
-		int frame_cnt);
+int mdss_mdp_cmd_set_autorefresh_mode(struct mdss_mdp_ctl *ctl, int frame_cnt);
+int mdss_mdp_cmd_get_autorefresh_mode(struct mdss_mdp_ctl *ctl);
+int mdss_mdp_ctl_cmd_set_autorefresh(struct mdss_mdp_ctl *ctl, int frame_cnt);
+int mdss_mdp_ctl_cmd_get_autorefresh(struct mdss_mdp_ctl *ctl);
 int mdss_mdp_pp_get_version(struct mdp_pp_feature_version *version);
 
 struct mdss_mdp_ctl *mdss_mdp_ctl_alloc(struct mdss_data_type *mdata,
@@ -1409,6 +1431,10 @@ bool mdss_mdp_is_wb_mdp_intf(u32 num, u32 reg_index);
 struct mdss_mdp_writeback *mdss_mdp_wb_assign(u32 id, u32 reg_index);
 struct mdss_mdp_writeback *mdss_mdp_wb_alloc(u32 caps, u32 reg_index);
 void mdss_mdp_wb_free(struct mdss_mdp_writeback *wb);
+
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+void samsung_timing_engine_control(int enable);
+#endif
 
 void mdss_dsc_parameters_calc(struct dsc_desc *dsc, int width, int height);
 void mdss_mdp_ctl_dsc_setup(struct mdss_mdp_ctl *ctl,

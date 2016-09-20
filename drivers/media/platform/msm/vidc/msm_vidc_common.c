@@ -259,6 +259,11 @@ static int msm_comm_get_mbs_per_sec(struct msm_vidc_inst *inst)
 	rc = msm_comm_g_ctrl(inst, &ctrl);
 	if (!rc && ctrl.value) {
 		fps = (ctrl.value >> 16) ? ctrl.value >> 16 : 1;
+ /* 
+ * Check if operating rate is less than fps. 
+ * If Yes, then use fps to scale the clocks 
+ */ 
+		fps = fps > inst->prop.fps ? fps : inst->prop.fps; 			
 		return max(output_port_mbs, capture_port_mbs) * fps;
 	} else
 		return max(output_port_mbs, capture_port_mbs) * inst->prop.fps;
@@ -1370,7 +1375,8 @@ static void handle_session_flush(enum hal_command_response cmd, void *data)
 			}
 		}
 	}
-
+	atomic_dec(&inst->in_flush);
+	dprintk(VIDC_DBG, "Notify flush complete to client\n");
 	msm_vidc_queue_v4l2_event(inst, V4L2_EVENT_MSM_VIDC_FLUSH_DONE);
 	put_inst(inst);
 }
@@ -1684,10 +1690,6 @@ int buf_ref_put(struct msm_vidc_inst *inst, struct buffer_info *binfo)
 
 	if (cnt < 0)
 		return cnt;
-
-	rc = output_buffer_cache_invalidate(inst, binfo);
-	if (rc)
-		return rc;
 
 	if (release_buf) {
 		/*
@@ -2069,11 +2071,13 @@ int msm_comm_scale_clocks(struct msm_vidc_core *core)
 
 int msm_comm_scale_clocks_load(struct msm_vidc_core *core, int num_mbs_per_sec)
 {
-	u32 codecs_enabled = 0;
 	int rc = 0;
 	struct hfi_device *hdev;
 	struct msm_vidc_inst *inst = NULL;
 	unsigned long instant_bitrate = 0;
+	int num_sessions = 0;
+	struct vidc_clk_scale_data clk_scale_data = { {0} };
+	int codec = 0;
 
 	if (!core) {
 		dprintk(VIDC_ERR, "%s Invalid args: %p\n", __func__, core);
@@ -2089,29 +2093,31 @@ int msm_comm_scale_clocks_load(struct msm_vidc_core *core, int num_mbs_per_sec)
 
 	mutex_lock(&core->lock);
 	list_for_each_entry(inst, &core->instances, list) {
-		int codec = 0;
 
 		codec = inst->session_type == MSM_VIDC_DECODER ?
 			inst->fmts[OUTPUT_PORT]->fourcc :
 			inst->fmts[CAPTURE_PORT]->fourcc;
 
-		codecs_enabled |= VIDC_VOTE_DATA_SESSION_VAL(
+		clk_scale_data.session[num_sessions] =
+				VIDC_VOTE_DATA_SESSION_VAL(
 				get_hal_codec(codec),
 				get_hal_domain(inst->session_type));
+		num_sessions++;
 
 		if (inst->instant_bitrate > instant_bitrate)
 			instant_bitrate = inst->instant_bitrate;
 
 	}
+	clk_scale_data.num_sessions = num_sessions;
 	mutex_unlock(&core->lock);
 
-	dprintk(VIDC_INFO, "num_mbs_per_sec = %d codecs_enabled %#x\n",
-			num_mbs_per_sec, codecs_enabled);
+
 	rc = call_hfi_op(hdev, scale_clocks,
 		hdev->hfi_device_data, num_mbs_per_sec,
-		codecs_enabled, instant_bitrate);
+		&clk_scale_data, instant_bitrate);
 	if (rc)
 		dprintk(VIDC_ERR, "Failed to set clock rate: %d\n", rc);
+
 	return rc;
 }
 
@@ -2560,9 +2566,11 @@ static int msm_vidc_load_resources(int flipped_state,
 		dprintk(VIDC_ERR, "HW is overloaded, needed: %d max: %d\n",
 			num_mbs_per_sec, core->resources.max_load);
 		msm_vidc_print_running_insts(core);
+#if 0 /* Samsung skips the overloaded error return  */
 		inst->state = MSM_VIDC_CORE_INVALID;
 		msm_comm_kill_session(inst);
 		return -EBUSY;
+#endif
 	}
 
 	hdev = core->device;
@@ -4308,6 +4316,8 @@ int msm_comm_flush(struct msm_vidc_inst *inst, u32 flags)
 			"FLUSH BUG: Pending q not empty! It should be empty\n");
 		}
 		mutex_unlock(&inst->pendingq.lock);
+		atomic_inc(&inst->in_flush);
+		dprintk(VIDC_DBG, "Send flush Output to firmware\n");
 		rc = call_hfi_op(hdev, session_flush, inst->session,
 				HAL_FLUSH_OUTPUT);
 	} else {
@@ -4344,6 +4354,8 @@ int msm_comm_flush(struct msm_vidc_inst *inst, u32 flags)
 		/*Do not send flush in case of session_error */
 		if (!(inst->state == MSM_VIDC_CORE_INVALID &&
 			  core->state != VIDC_CORE_INVALID))
+			atomic_inc(&inst->in_flush);
+			dprintk(VIDC_DBG, "Send flush all to firmware\n");
 			rc = call_hfi_op(hdev, session_flush, inst->session,
 				HAL_FLUSH_ALL);
 	}
@@ -4490,7 +4502,9 @@ static int msm_vidc_load_supported(struct msm_vidc_inst *inst)
 				num_mbs_per_sec,
 				inst->core->resources.max_load);
 			msm_vidc_print_running_insts(inst->core);
+#if 0 /* Samsung skips the overloaded error return  */	
 			return -EBUSY;
+#endif
 		}
 	}
 	return 0;

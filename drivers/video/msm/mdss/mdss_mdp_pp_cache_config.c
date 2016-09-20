@@ -742,85 +742,94 @@ static int pp_igc_lut_cache_params_v1_7(struct mdp_igc_lut_data *config,
 		pr_err("invalid pp_data_res %p\n", mdss_pp_res->pp_data_res);
 		return -EINVAL;
 	}
-	res_cache = mdss_pp_res->pp_data_res;
 	if (config->ops & MDP_PP_OPS_READ) {
 		pr_err("read op is not supported\n");
 		return -EINVAL;
-	} else {
-		disp_num = config->block - MDP_LOGICAL_BLOCK_DISP_0;
-		mdss_pp_res->igc_disp_cfg[disp_num] = *config;
-		v17_cache_data = &res_cache->igc_v17_data[disp_num];
-		mdss_pp_res->igc_disp_cfg[disp_num].cfg_payload =
+	}
+
+	disp_num = config->block - MDP_LOGICAL_BLOCK_DISP_0;
+	res_cache = mdss_pp_res->pp_data_res;
+	mdss_pp_res->igc_disp_cfg[disp_num] = *config;
+
+	if (config->ops & MDP_PP_OPS_DISABLE) {
+		pr_debug("disable igc\n");
+		ret = 0;
+		goto igc_config_exit;
+	}
+
+	v17_cache_data = &res_cache->igc_v17_data[disp_num];
+	mdss_pp_res->igc_disp_cfg[disp_num].cfg_payload =
 		(void *) v17_cache_data;
-		if (!copy_from_kernel) {
-			if (copy_from_user(&v17_usr_config,
-					   config->cfg_payload,
-					   sizeof(v17_usr_config))) {
-				pr_err("failed to copy igc config\n");
-				ret = -EFAULT;
-				goto igc_config_exit;
-			}
-		} else {
-			if (!config->cfg_payload) {
-				pr_err("can't copy config info NULL payload\n");
-				ret = -EINVAL;
-				goto igc_config_exit;
-			}
-			memcpy(&v17_usr_config, config->cfg_payload,
-			       sizeof(v17_usr_config));
-		}
-		if (!(config->ops & MDP_PP_OPS_WRITE)) {
-			pr_debug("op for gamut %d\n", config->ops);
+	if (!copy_from_kernel) {
+		if (copy_from_user(&v17_usr_config,
+				   config->cfg_payload,
+				   sizeof(v17_usr_config))) {
+			pr_err("failed to copy igc config\n");
+			ret = -EFAULT;
 			goto igc_config_exit;
 		}
-		if (copy_from_kernel && (!v17_usr_config.c0_c1_data ||
-		    !v17_usr_config.c2_data)) {
-			pr_err("copy from kernel invalid params c0_c1_data %p c2_data %p\n",
-				v17_usr_config.c0_c1_data,
-				v17_usr_config.c2_data);
+	} else {
+		if (!config->cfg_payload) {
+			pr_err("can't copy config info NULL payload\n");
 			ret = -EINVAL;
 			goto igc_config_exit;
 		}
-		if (v17_usr_config.len != IGC_LUT_ENTRIES) {
-			pr_err("Invalid table size %d exp %d\n",
-				v17_usr_config.len, IGC_LUT_ENTRIES);
-			ret = -EINVAL;
-			goto igc_config_exit;
-		}
-		memcpy(v17_cache_data, &v17_usr_config,
+		memcpy(&v17_usr_config, config->cfg_payload,
 		       sizeof(v17_usr_config));
-		v17_cache_data->c0_c1_data =
-		&res_cache->igc_table_c0_c1[disp_num][0];
-		v17_cache_data->c2_data =
-		&res_cache->igc_table_c2[disp_num][0];
-		if (copy_from_kernel) {
-			memcpy(v17_cache_data->c0_c1_data,
-			       v17_usr_config.c0_c1_data,
-			       v17_usr_config.len * sizeof(u32));
-			memcpy(v17_cache_data->c2_data, v17_usr_config.c2_data,
-			       v17_usr_config.len * sizeof(u32));
-		} else {
-			ret = copy_from_user(v17_cache_data->c0_c1_data,
-					     v17_usr_config.c0_c1_data,
-					     v17_usr_config.len * sizeof(u32));
-			if (ret) {
-				pr_err("copy from user failed for c0_c1_data size %zd ret %d\n",
-				       v17_usr_config.len * sizeof(u32), ret);
-				ret = -EFAULT;
-				goto igc_config_exit;
-			}
-			ret = copy_from_user(v17_cache_data->c2_data,
-					     v17_usr_config.c2_data,
-					     v17_usr_config.len * sizeof(u32));
-			if (ret) {
-				pr_err("copy from user failed for c2_data size %zd ret %d\n",
-				       v17_usr_config.len * sizeof(u32), ret);
-				ret = -EFAULT;
-				goto igc_config_exit;
-			}
+	}
+	if (!(config->ops & MDP_PP_OPS_WRITE)) {
+		pr_debug("op for gamut %d\n", config->ops);
+		goto igc_config_exit;
+	}
+	if (copy_from_kernel && (!v17_usr_config.c0_c1_data ||
+	    !v17_usr_config.c2_data)) {
+		pr_err("copy from kernel invalid params c0_c1_data %p c2_data %p\n",
+			v17_usr_config.c0_c1_data,
+			v17_usr_config.c2_data);
+		ret = -EINVAL;
+		goto igc_config_exit;
+	}
+	if (v17_usr_config.len != IGC_LUT_ENTRIES) {
+		pr_err("Invalid table size %d exp %d\n",
+			v17_usr_config.len, IGC_LUT_ENTRIES);
+		ret = -EINVAL;
+		goto igc_config_exit;
+	}
+	memcpy(v17_cache_data, &v17_usr_config,
+	       sizeof(v17_usr_config));
+	v17_cache_data->c0_c1_data =
+	&res_cache->igc_table_c0_c1[disp_num][0];
+	v17_cache_data->c2_data =
+	&res_cache->igc_table_c2[disp_num][0];
+	if (copy_from_kernel) {
+		memcpy(v17_cache_data->c0_c1_data,
+		       v17_usr_config.c0_c1_data,
+		       v17_usr_config.len * sizeof(u32));
+		memcpy(v17_cache_data->c2_data, v17_usr_config.c2_data,
+		       v17_usr_config.len * sizeof(u32));
+	} else {
+		ret = copy_from_user(v17_cache_data->c0_c1_data,
+				     v17_usr_config.c0_c1_data,
+				     v17_usr_config.len * sizeof(u32));
+		if (ret) {
+			pr_err("copy from user failed for c0_c1_data size %zd ret %d\n",
+			       v17_usr_config.len * sizeof(u32), ret);
+			ret = -EFAULT;
+			goto igc_config_exit;
+		}
+		ret = copy_from_user(v17_cache_data->c2_data,
+				     v17_usr_config.c2_data,
+				     v17_usr_config.len * sizeof(u32));
+		if (ret) {
+			pr_err("copy from user failed for c2_data size %zd ret %d\n",
+			       v17_usr_config.len * sizeof(u32), ret);
+			ret = -EFAULT;
+			goto igc_config_exit;
 		}
 	}
 igc_config_exit:
+	if (ret || (config->ops & MDP_PP_OPS_DISABLE))
+		mdss_pp_res->igc_disp_cfg[disp_num].cfg_payload = NULL;
 	return ret;
 }
 
@@ -838,6 +847,12 @@ static int pp_igc_lut_cache_params_pipe_v1_7(struct mdp_igc_lut_data *config,
 	if (config->ops & MDP_PP_OPS_READ) {
 		pr_err("read op is not supported\n");
 		return -EINVAL;
+	}
+
+	if (config->ops & MDP_PP_OPS_DISABLE) {
+		pr_debug("disable igc on pipe %d\n", pipe->num);
+		ret = 0;
+		goto igc_config_exit;
 	}
 
 	if (!config->cfg_payload) {

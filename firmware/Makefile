@@ -104,6 +104,9 @@ fw-shipped-$(CONFIG_USB_EMI62) += emi62/loader.fw emi62/bitstream.fw \
 fw-shipped-$(CONFIG_USB_KAWETH) += kaweth/new_code.bin kaweth/trigger_code.bin \
 				   kaweth/new_code_fix.bin \
 				   kaweth/trigger_code_fix.bin
+# Wireless charger
+fw-shipped-$(CONFIG_WIRELESS_FIRMWARE_UPDATE) += idt/p9220_otp.bin idt/p9220_sram.bin
+
 ifdef CONFIG_FIRMWARE_IN_KERNEL
 fw-shipped-$(CONFIG_USB_SERIAL_KEYSPAN_MPR) += keyspan/mpr.fw
 fw-shipped-$(CONFIG_USB_SERIAL_KEYSPAN_USA18X) += keyspan/usa18x.fw
@@ -135,6 +138,35 @@ fw-shipped-$(CONFIG_USB_SERIAL_XIRCOM) += keyspan_pda/xircom_pgs.fw
 fw-shipped-$(CONFIG_USB_VICAM) += vicam/firmware.fw
 fw-shipped-$(CONFIG_VIDEO_CPIA2) += cpia2/stv0672_vp4.bin
 fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
+
+# Input Device firmware
+ifdef CONFIG_SEC_HEROQLTE_PROJECT
+fw-shipped-$(CONFIG_KEYBOARD_ABOV_TOUCH_FT16XX)		+= abov/abov_tk_hero.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS)			+= tsp_sec/sec_hero.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS)			+= tsp_sec/sec_hero_octa.fw
+endif
+
+ifdef CONFIG_SEC_HERO2QLTE_PROJECT
+fw-shipped-$(CONFIG_TOUCHSCREEN_STM)			+= tsp_stm/stm_hero2_alps.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_STM)			+= tsp_stm/stm_hero2_ilsin.fw
+fw-shipped-$(CONFIG_KEYBOARD_ABOV_TOUCH_FT16XX)		+= abov/abov_tk_hero2.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS)			+= tsp_sec/sec_hero2.fw
+endif
+
+# based Zero
+ifdef CONFIG_SEC_AEROQLTE_PROJECT
+fw-shipped-$(CONFIG_TOUCHSCREEN_STM)			+= tsp_stm/stm_zero_f.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_STM)			+= tsp_stm/stm_zero_e.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_STM)			+= tsp_stm/stm_noble.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_STM)			+= tsp_stm/stm_hero2_alps.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_STM)			+= tsp_stm/stm_hero2_ilsin.fw
+fw-shipped-$(CONFIG_KEYBOARD_CYPRESS_TOUCHKEY_T)	+= tkey/zerof_cypress_tkey.fw
+fw-shipped-$(CONFIG_KEYBOARD_ABOV_TOUCH_FT16XX)		+= abov/abov_tk_hero.fw
+fw-shipped-$(CONFIG_KEYBOARD_ABOV_TOUCH_FT16XX)		+= abov/abov_tk_hero2.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS)			+= tsp_sec/s6smc43_s6_img_REL.bin
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS)			+= tsp_sec/s6smc41_blupdate_img_REL.bin
+fw-shipped-$(CONFIG_TOUCHSCREEN_SEC_TS)			+= tsp_sec/sec_hero.fw
+endif
 
 fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
 

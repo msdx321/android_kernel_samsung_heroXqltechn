@@ -1616,14 +1616,17 @@ static int ispif_probe(struct platform_device *pdev)
 	}
 
 	rc = msm_ispif_get_regulator_info(ispif, pdev);
-	if (rc < 0)
+	if (rc < 0) {
+		kfree(ispif);
 		return -EFAULT;
+	}
 
 	rc = msm_ispif_get_clk_info(ispif, pdev,
 		ispif_ahb_clk_info, ispif_clk_info);
 	if (rc < 0) {
 		pr_err("%s: msm_isp_get_clk_info() failed", __func__);
-			return -EFAULT;
+		kfree(ispif);
+		return -EFAULT;
 	}
 	mutex_init(&ispif->mutex);
 	ispif->mem = platform_get_resource_byname(pdev,

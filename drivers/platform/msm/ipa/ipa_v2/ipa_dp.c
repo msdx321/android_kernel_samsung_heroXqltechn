@@ -758,6 +758,7 @@ static int ipa_handle_rx_core(struct ipa_sys_context *sys, bool process_all,
 		if (cnt && !process_all)
 			break;
 
+		sys->debug_stage = "14: before sps_get_iovec";
 		ret = sps_get_iovec(sys->ep->ep_hdl, &iov);
 		if (ret) {
 			IPAERR("sps_get_iovec failed %d\n", ret);
@@ -770,8 +771,11 @@ static int ipa_handle_rx_core(struct ipa_sys_context *sys, bool process_all,
 			ipa_dma_memcpy_notify(sys, &iov);
 		else if (IPA_CLIENT_IS_WLAN_CONS(sys->ep->client))
 			ipa_wlan_wq_rx_common(sys, iov.size);
-		else
+		else {
+			sys->debug_stage = "15: before ipa_wq_rx_common";
 			ipa_wq_rx_common(sys, iov.size);
+			sys->debug_stage = "16: after ipa_wq_rx_common";
+		}
 
 		cnt++;
 	};
@@ -791,12 +795,14 @@ static void ipa_rx_switch_to_intr_mode(struct ipa_sys_context *sys)
 		goto fail;
 	}
 
+	sys->debug_stage = "20: before sps_get_config";
 	ret = sps_get_config(sys->ep->ep_hdl, &sys->ep->connect);
 	if (ret) {
 		IPAERR("sps_get_config() failed %d\n", ret);
 		goto fail;
 	}
 	sys->event.options = SPS_O_EOT;
+	sys->debug_stage = "21: before sps_register_event";
 	ret = sps_register_event(sys->ep->ep_hdl, &sys->event);
 	if (ret) {
 		IPAERR("sps_register_event() failed %d\n", ret);
@@ -804,13 +810,17 @@ static void ipa_rx_switch_to_intr_mode(struct ipa_sys_context *sys)
 	}
 	sys->ep->connect.options =
 		SPS_O_AUTO_ENABLE | SPS_O_ACK_TRANSFERS | SPS_O_EOT;
+	sys->debug_stage = "22: before sps_register_event";
 	ret = sps_set_config(sys->ep->ep_hdl, &sys->ep->connect);
 	if (ret) {
 		IPAERR("sps_set_config() failed %d\n", ret);
 		goto fail;
 	}
+	sys->debug_stage = "23: setting curr_polling_state to 0";
 	atomic_set(&sys->curr_polling_state, 0);
+	sys->debug_stage = "24: before ipa_handle_rx_core";
 	ipa_handle_rx_core(sys, true, false);
+	sys->debug_stage = "25: after ipa_handle_rx_core";
 	return;
 
 fail:
@@ -825,6 +835,16 @@ fail:
 static void ipa_sps_irq_control(struct ipa_sys_context *sys, bool enable)
 {
 	int ret;
+	
+	/*
+	 * Do not change sps config in case we are in polling mode as this
+	 * indicates that sps driver already notified EOT event and sps config
+	 * should not change until ipa driver processes the packet.
+	 */
+	if (atomic_read(&sys->curr_polling_state)) {
+		IPADBG("in polling mode, do not change config\n");
+		return;
+	}
 
 	if (enable) {
 		ret = sps_get_config(sys->ep->ep_hdl, &sys->ep->connect);
@@ -928,8 +948,11 @@ static void ipa_sps_irq_rx_notify(struct sps_event_notify *notify)
 				IPAERR("sps_set_config() failed %d\n", ret);
 				break;
 			}
+			sys->debug_stage = "1: setting curr_polling_state to 1";
 			atomic_set(&sys->curr_polling_state, 1);
+			sys->debug_stage = "2: queuing work for rx poll";
 			queue_work(sys->wq, &sys->work);
+			sys->debug_stage = "3: done queuing work for rx poll";
 		}
 		break;
 	default:
@@ -960,16 +983,23 @@ static void ipa_handle_rx(struct ipa_sys_context *sys)
 	int inactive_cycles = 0;
 	int cnt;
 
+	sys->debug_stage = "5: before enabling clocks";
 	ipa_inc_client_enable_clks();
+	sys->debug_stage = "6: before pm_stay_awake";
 	pm_stay_awake(ipa_ctx->pdev);
 	do {
+		sys->debug_stage = "7: before ipa_handle_rx_core";
 		cnt = ipa_handle_rx_core(sys, true, true);
 		if (cnt == 0) {
+			sys->debug_stage = "8: before sleeping";
 			inactive_cycles++;
+			sys->debug_inactivity_cycles = inactive_cycles;
 			usleep_range(POLLING_MIN_SLEEP_RX,
 					POLLING_MAX_SLEEP_RX);
+			sys->debug_stage = "9: after sleeping";
 		} else {
 			inactive_cycles = 0;
+			sys->debug_inactivity_cycles = inactive_cycles;
 		}
 
 		/* if pipe is out of buffers there is no point polling for
@@ -981,9 +1011,13 @@ static void ipa_handle_rx(struct ipa_sys_context *sys)
 
 	} while (inactive_cycles <= POLLING_INACTIVITY_RX);
 
+	sys->debug_stage = "10: before ipa_rx_switch_to_intr_mode";
 	ipa_rx_switch_to_intr_mode(sys);
+	sys->debug_stage = "11: after ipa_rx_switch_to_intr_mode";
 	pm_relax(ipa_ctx->pdev);
+	sys->debug_stage = "12: before ipa_dec_client_disable_clks";
 	ipa_dec_client_disable_clks();
+	sys->debug_stage = "13: after ipa_dec_client_disable_clks";
 }
 
 static void switch_to_intr_rx_work_func(struct work_struct *work)
@@ -993,6 +1027,7 @@ static void switch_to_intr_rx_work_func(struct work_struct *work)
 
 	dwork = container_of(work, struct delayed_work, work);
 	sys = container_of(dwork, struct ipa_sys_context, switch_to_intr_work);
+	sys->debug_stage = "4: calling to ipa_handle_rx()";
 	ipa_handle_rx(sys);
 }
 
@@ -2608,8 +2643,11 @@ static void ipa_wq_rx_common(struct ipa_sys_context *sys, u32 size)
 	rx_skb->len = rx_pkt_expected->len;
 	*(unsigned int *)rx_skb->cb = rx_skb->len;
 	rx_skb->truesize = rx_pkt_expected->len + sizeof(struct sk_buff);
+	sys->debug_stage = "17: before pyld_hdlr";
 	sys->pyld_hdlr(rx_skb, sys);
+	sys->debug_stage = "18: before repl_hdlr";
 	sys->repl_hdlr(sys);
+	sys->debug_stage = "19: before kmem_cache_free";
 	kmem_cache_free(ipa_ctx->rx_pkt_wrapper_cache, rx_pkt_expected);
 
 }

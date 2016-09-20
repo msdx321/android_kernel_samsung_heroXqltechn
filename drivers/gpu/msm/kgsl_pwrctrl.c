@@ -416,6 +416,8 @@ void kgsl_pwrctrl_pwrlevel_change(struct kgsl_device *device,
 			pwr->active_pwrlevel, pwrlevel->gpu_freq,
 			pwr->previous_pwrlevel,
 			pwr->pwrlevels[old_level].gpu_freq);
+	trace_printk("thermal_pwrlevel:%d %pF\n", pwr->thermal_pwrlevel, __builtin_return_address(0));
+
 	/* Change register settings if any AFTER pwrlevel change*/
 	kgsl_pwrctrl_pwrlevel_change_settings(device, 1);
 
@@ -499,6 +501,7 @@ static ssize_t kgsl_pwrctrl_thermal_pwrlevel_store(struct device *dev,
 
 	/* Update the current level using the new limit */
 	kgsl_pwrctrl_pwrlevel_change(device, pwr->active_pwrlevel);
+	trace_printk("thermal_pwrlevel:%d, active_pwrlevel:%d, previous_pwrlevel:%d, %pF\n", pwr->thermal_pwrlevel, pwr->active_pwrlevel, pwr->previous_pwrlevel, __builtin_return_address(0));
 	mutex_unlock(&device->mutex);
 
 	return count;

@@ -51,6 +51,9 @@
 #include <linux/platform_data/qcom-serial_hs_lite.h>
 #include <linux/msm-bus.h>
 #include "msm_serial_hs_hwreg.h"
+#ifdef CONFIG_SEC_BSP
+#include <linux/ipc_logging.h>
+#endif
 
 /*
  * There are 3 different kind of UART Core available on MSM.
@@ -62,6 +65,38 @@ enum uart_core_type {
 	GSBI_HSUART,
 	BLSP_HSUART,
 };
+
+#ifdef CONFIG_SEC_BSP
+#define SERIAL_HSL_LOG_PAGES (1)
+
+#define KLOG_MASK_SHIFT (0)
+#define IPCLOG_MASK_SHIFT (1)
+#define SHORT_FULL_LOG_MASK_SHIFT (4)
+
+#define KLOG_MASK (1 << KLOG_MASK_SHIFT)
+#define IPCLOG_MASK (1 << IPCLOG_MASK_SHIFT)
+#define SHORT_LOG_MASK (1 << SHORT_FULL_LOG_MASK_SHIFT) // short 1, full 0
+
+typedef struct {
+	unsigned int log_mask;
+	unsigned int enabled;
+} serial_hsl_log_t;
+
+static serial_hsl_log_t serial_hsl_log = {
+	.log_mask = SHORT_LOG_MASK | IPCLOG_MASK | KLOG_MASK,
+	.enabled = 1,
+};
+
+module_param_named(log_mask, serial_hsl_log.log_mask, uint, 0644);
+module_param_named(enable, serial_hsl_log.enabled, uint, 0644);
+
+/* RX/TX buffer size */
+#define BUF_SIZE 64
+static char rx_buf[BUF_SIZE];
+static char tx_buf[BUF_SIZE];
+
+#endif /* CONFIG_SEC_BSP */
+
 
 /*
  * UART can be used in 2-wire or 4-wire mode.
@@ -93,6 +128,12 @@ struct msm_hsl_port {
 	u32			bus_perf_client;
 	/* BLSP UART required BUS Scaling data */
 	struct msm_bus_scale_pdata *bus_scale_table;
+	struct pinctrl		*pinctrl;
+	struct pinctrl_state	*gpio_state_sleep;
+	struct pinctrl_state	*gpio_state_active;
+#ifdef CONFIG_SEC_BSP
+	void *ipc_log;
+#endif
 };
 
 #define UARTDM_VERSION_11_13	0
@@ -548,6 +589,79 @@ static void msm_hsl_enable_ms(struct uart_port *port)
 		regmap[msm_hsl_port->ver_id][UARTDM_IMR]);
 }
 
+#ifdef CONFIG_SEC_BSP
+static void print_debug_log(struct uart_port *port, const char *level, const char *prefix_str, int prefix_type,
+		    int rowsize, int groupsize,
+		    const void *buf, size_t len, bool ascii)
+{
+	const u8 *ptr = buf;
+	int i, linelen, remaining = 0;
+	unsigned char linebuf[32 * 3 + 2 + 32 + 1];
+	struct msm_hsl_port *msm_hsl_port = UART_TO_MSM(port);
+
+	if (!serial_hsl_log.enabled)
+		return;
+
+	if (serial_hsl_log.log_mask & SHORT_LOG_MASK) {
+		if (len > 4) {
+			if (!is_console(port))
+				remaining = len > 16 ? 16 : len;
+			else
+				return;
+		}
+		else
+			return;
+	} else {
+		remaining = len;
+	}
+
+	if (rowsize != 16 && rowsize != 32)
+		rowsize = 16;
+
+	for (i = 0; i < len; i += rowsize) {
+		linelen = min(remaining, rowsize);
+		remaining -= rowsize;
+
+		hex_dump_to_buffer(ptr + i, linelen, rowsize, groupsize,
+				   linebuf, sizeof(linebuf), ascii);
+
+		switch (prefix_type) {
+		case DUMP_PREFIX_ADDRESS:
+			if (serial_hsl_log.log_mask & KLOG_MASK)
+				printk("%s%s%p: %s\n",
+				       level, prefix_str, ptr + i, linebuf);
+			if (serial_hsl_log.log_mask & IPCLOG_MASK) {
+				if (msm_hsl_port && msm_hsl_port->ipc_log) {
+					ipc_log_string(msm_hsl_port->ipc_log, "%s%p: %s\n",
+						prefix_str, ptr + i, linebuf);
+				}
+			}
+			break;
+		case DUMP_PREFIX_OFFSET:
+			if (serial_hsl_log.log_mask & KLOG_MASK)
+				printk("%s%s%.8x: %s\n", level, prefix_str, i, linebuf);
+			if (serial_hsl_log.log_mask & IPCLOG_MASK) {
+				if (msm_hsl_port && msm_hsl_port->ipc_log) {
+					ipc_log_string(msm_hsl_port->ipc_log, "%s%.8x: %s\n",
+						prefix_str, i, linebuf);
+				}
+			}
+			break;
+		default:
+			if (serial_hsl_log.log_mask & KLOG_MASK)
+				printk("%s%s%s\n", level, prefix_str, linebuf);
+			if (serial_hsl_log.log_mask & IPCLOG_MASK) {
+				if (msm_hsl_port && msm_hsl_port->ipc_log) {
+					ipc_log_string(msm_hsl_port->ipc_log, "%s%s\n",
+						prefix_str, linebuf);
+				}
+			}
+			break;
+		}
+	}
+}
+#endif
+
 static void handle_rx(struct uart_port *port, unsigned int misr)
 {
 	struct tty_struct *tty = port->state->port.tty;
@@ -555,6 +669,12 @@ static void handle_rx(struct uart_port *port, unsigned int misr)
 	unsigned int sr;
 	int count = 0;
 	struct msm_hsl_port *msm_hsl_port = UART_TO_MSM(port);
+#ifdef CONFIG_SEC_BSP
+	int rx_buf_count = 0;
+
+	if (serial_hsl_log.enabled)
+		memset(rx_buf, 0xFF, BUF_SIZE);
+#endif
 
 	vid = msm_hsl_port->ver_id;
 	/*
@@ -607,13 +727,32 @@ static void handle_rx(struct uart_port *port, unsigned int misr)
 		else if (sr & UARTDM_SR_PAR_FRAME_BMSK)
 			flag = TTY_FRAME;
 
+#ifdef CONFIG_SEC_BSP
+		if (serial_hsl_log.enabled) {
+			if (count < 4) {
+				if (rx_buf_count <= (sizeof(rx_buf) - count)) {
+					memcpy(rx_buf + rx_buf_count, &c, count);
+					rx_buf_count += count;
+				}
+			} else {
+				if (rx_buf_count <= (sizeof(rx_buf) - sizeof(int))) {
+					memcpy(rx_buf + rx_buf_count, &c, sizeof(int));
+					rx_buf_count +=sizeof(int);
+				}
+			}
+		}
+#endif
+
 		/* TODO: handle sysrq */
 		/* if (!uart_handle_sysrq_char(port, c)) */
 		tty_insert_flip_string(tty->port, (char *) &c,
 				       (count > 4) ? 4 : count);
 		count -= 4;
 	}
-
+#ifdef CONFIG_SEC_BSP
+	print_debug_log(port, KERN_DEBUG, "RX UART: ",
+			DUMP_PREFIX_NONE, 16, 1, rx_buf, rx_buf_count, 1);
+#endif
 	tty_flip_buffer_push(tty->port);
 }
 
@@ -625,6 +764,12 @@ static void handle_tx(struct uart_port *port)
 	int x;
 	unsigned int tf_pointer = 0;
 	unsigned int vid;
+#ifdef CONFIG_SEC_BSP
+	int tx_buf_count = 0;
+
+	if (serial_hsl_log.enabled)
+		memset(tx_buf, 0xFF, BUF_SIZE);
+#endif
 
 	vid = UART_TO_MSM(port)->ver_id;
 	tx_count = uart_circ_chars_pending(xmit);
@@ -681,6 +826,22 @@ static void handle_tx(struct uart_port *port)
 			break;
 		}
 		}
+
+#ifdef CONFIG_SEC_BSP
+		if (serial_hsl_log.enabled) {
+			if ((tx_count - tf_pointer) < 4) {
+				if (tx_buf_count <= (sizeof(tx_buf) - (tx_count - tf_pointer))) {
+					memcpy(tx_buf+tx_buf_count, &x, tx_count - tf_pointer);
+					tx_buf_count += (tx_count - tf_pointer);
+				}
+			} else {
+				if (tx_buf_count <= (sizeof(tx_buf) - sizeof(int))) {
+					memcpy(tx_buf+tx_buf_count, &x, sizeof(int));
+					tx_buf_count += sizeof(int);
+				}
+			}
+		}
+#endif
 		msm_hsl_write(port, x, regmap[vid][UARTDM_TF]);
 		xmit->tail = ((tx_count - tf_pointer < 4) ?
 			      (tx_count - tf_pointer + xmit->tail) :
@@ -688,6 +849,11 @@ static void handle_tx(struct uart_port *port)
 		tf_pointer += 4;
 		sent_tx = 1;
 	}
+
+#ifdef CONFIG_SEC_BSP
+	print_debug_log(port, KERN_DEBUG, "TX UART: ",
+			DUMP_PREFIX_NONE, 16, 1, tx_buf, tx_count, 1);
+#endif
 
 	if (uart_circ_empty(xmit))
 		msm_hsl_stop_tx(port);
@@ -1500,8 +1666,12 @@ static int msm_hsl_console_setup(struct console *co, char *options)
 	msm_hsl_write(port, UARTDM_MR2_BITS_PER_CHAR_8 | STOP_BIT_ONE,
 		      regmap[vid][UARTDM_MR2]);	/* 8N1 */
 
+#ifndef CONFIG_SEC_BSP
 	if (baud < 300 || baud > 115200)
 		baud = 115200;
+#endif
+	pr_info("%s: baud(%d)\n", __func__, baud);
+
 	msm_hsl_set_baud_rate(port, baud);
 
 	ret = uart_set_options(port, co, baud, parity, bits, flow);
@@ -1686,6 +1856,56 @@ static struct msm_serial_hslite_platform_data
 	return pdata;
 }
 
+static void msm_serial_hsl_get_pinctrl_config(struct uart_port *uport, bool active)
+{
+	struct pinctrl_state *set_state;
+	struct msm_hsl_port *msm_hsl_port = UART_TO_MSM(uport);
+
+	msm_hsl_port->pinctrl = devm_pinctrl_get(uport->dev);
+	if (IS_ERR_OR_NULL(msm_hsl_port->pinctrl)) {
+		dev_err(uport->dev, "Error getting pinctrl");
+	} else {
+		if(active) {
+			if(!msm_hsl_port->gpio_state_active) {
+				set_state = pinctrl_lookup_state(msm_hsl_port->pinctrl,
+				PINCTRL_STATE_DEFAULT);
+				if (IS_ERR_OR_NULL(set_state)) {
+					dev_err(uport->dev,
+						"pinctrl lookup failed for default state");
+					goto pinctrl_fail;
+				}
+				msm_hsl_port->gpio_state_active = set_state;
+			}
+			pinctrl_select_state(msm_hsl_port->pinctrl,
+				msm_hsl_port->gpio_state_active);
+			gpio_direction_output(4, 1);
+			gpio_direction_output(5, 1);
+			return;
+		}
+		else {
+			if(!msm_hsl_port->gpio_state_sleep) {
+				set_state = pinctrl_lookup_state(msm_hsl_port->pinctrl,
+				PINCTRL_STATE_SLEEP);
+				if (IS_ERR_OR_NULL(set_state)) {
+					dev_err(uport->dev,
+						"pinctrl lookup failed for sleep state");
+					goto pinctrl_fail;
+				}
+				msm_hsl_port->gpio_state_sleep = set_state;
+			}
+			pinctrl_select_state(msm_hsl_port->pinctrl,
+				msm_hsl_port->gpio_state_sleep);
+			gpio_direction_input(4);
+			gpio_direction_input(5);
+			return;
+		}
+	}
+pinctrl_fail:
+	msm_hsl_port->pinctrl = NULL;
+	dev_info(uport->dev, "Pinctrl fail");
+	return;
+}
+
 static atomic_t msm_serial_hsl_next_id = ATOMIC_INIT(0);
 
 static int msm_serial_hsl_probe(struct platform_device *pdev)
@@ -1762,6 +1982,8 @@ static int msm_serial_hsl_probe(struct platform_device *pdev)
 		msm_hsl_port->func_mode = UART_FOUR_WIRE;
 	else
 		msm_hsl_port->func_mode = UART_TWO_WIRE;
+
+	msm_serial_hsl_get_pinctrl_config(port, true);
 
 	match = of_match_device(msm_hsl_match_table, &pdev->dev);
 	if (!match) {
@@ -1841,6 +2063,9 @@ static int msm_serial_hsl_probe(struct platform_device *pdev)
 	if (msm_hsl_port->pclk)
 		clk_disable_unprepare(msm_hsl_port->pclk);
 
+#ifdef CONFIG_SEC_BSP
+	msm_hsl_port->ipc_log = ipc_log_context_create(SERIAL_HSL_LOG_PAGES, "uart_log", 0);
+#endif
 err:
 	return ret;
 }
@@ -1882,7 +2107,7 @@ static int msm_serial_hsl_suspend(struct device *dev)
 	port = get_port_from_line(get_line(pdev));
 
 	if (port) {
-
+		msm_serial_hsl_get_pinctrl_config(port, false);
 		if (is_console(port))
 			msm_hsl_deinit_clock(port);
 
@@ -1901,7 +2126,7 @@ static int msm_serial_hsl_resume(struct device *dev)
 	port = get_port_from_line(get_line(pdev));
 
 	if (port) {
-
+		msm_serial_hsl_get_pinctrl_config(port, true);
 		uart_resume_port(&msm_hsl_uart_driver, port);
 		if (device_may_wakeup(dev))
 			disable_irq_wake(port->irq);

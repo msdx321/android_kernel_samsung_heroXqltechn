@@ -392,20 +392,21 @@ static struct ion_heap_ops system_heap_ops = {
 };
 
 static int ion_system_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
-				      void *unused)
+				      void *is_simple)
 {
 
 	struct ion_system_heap *sys_heap = container_of(heap,
 							struct ion_system_heap,
 							heap);
 	bool use_seq = s != NULL;
+	bool simple = is_simple == (void *)0x1;
 	unsigned long uncached_total = 0;
 	unsigned long cached_total = 0;
 
 	int i;
 	for (i = 0; i < num_orders; i++) {
 		struct ion_page_pool *pool = sys_heap->uncached_pools[i];
-		if (use_seq) {
+		if (use_seq && !simple) {
 			seq_printf(s,
 				"%d order %u highmem pages in uncached pool = %lu total\n",
 				pool->high_count, pool->order,
@@ -426,7 +427,7 @@ static int ion_system_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
 
 	for (i = 0; i < num_orders; i++) {
 		struct ion_page_pool *pool = sys_heap->cached_pools[i];
-		if (use_seq) {
+		if (use_seq && !simple) {
 			seq_printf(s,
 				"%d order %u highmem pages in cached pool = %lu total\n",
 				pool->high_count, pool->order,
@@ -442,6 +443,16 @@ static int ion_system_heap_debug_show(struct ion_heap *heap, struct seq_file *s,
 			pool->high_count;
 		cached_total += (1 << pool->order) * PAGE_SIZE *
 			pool->low_count;
+	}
+
+	if (simple) {
+		if (use_seq)
+			seq_printf(s, "SystemHeapPool: %8lu kB\n",
+				(uncached_total + cached_total) >> 10);
+		else
+			printk("SystemHeapPool:%lukB ",
+				(uncached_total + cached_total) >> 10);
+		return 0;
 	}
 
 	if (use_seq) {

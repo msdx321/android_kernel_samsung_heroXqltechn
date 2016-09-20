@@ -34,6 +34,8 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/cpufreq_interactive.h>
 
+#define CONFIG_MODE_AUTO_CHANGE
+
 struct cpufreq_interactive_policyinfo {
 	struct timer_list policy_timer;
 	struct timer_list policy_slack_timer;
@@ -88,6 +90,29 @@ static unsigned int default_target_loads[] = {DEFAULT_TARGET_LOAD};
 static unsigned int default_above_hispeed_delay[] = {
 	DEFAULT_ABOVE_HISPEED_DELAY };
 
+#ifdef CONFIG_MODE_AUTO_CHANGE
+struct cpufreq_loadinfo {
+	unsigned int load;
+	unsigned int freq;
+	u64 timestamp;
+};
+static DEFINE_PER_CPU(struct cpufreq_loadinfo, loadinfo);
+static DEFINE_PER_CPU(unsigned int, cpu_util);
+
+#define MULTI_MODE	2
+#define SINGLE_MODE	1
+#define NO_MODE	0
+
+
+#define DEFAULT_MULTI_ENTER_TIME (4 * DEFAULT_TIMER_RATE)
+#define DEFAULT_MULTI_EXIT_TIME (16 * DEFAULT_TIMER_RATE)
+#define DEFAULT_SINGLE_ENTER_TIME (8 * DEFAULT_TIMER_RATE)
+#define DEFAULT_SINGLE_EXIT_TIME (4 * DEFAULT_TIMER_RATE)
+
+
+#define MAX_PARAM_SET 4 /* ((MULTI_MODE | SINGLE_MODE | NO_MODE) + 1) */
+#endif /* CONFIG_MODE_AUTO_CHANGE */
+
 struct cpufreq_interactive_tunables {
 	int usage_count;
 	/* Hi speed to bump to from lo speed when load burst (default max) */
@@ -123,6 +148,39 @@ struct cpufreq_interactive_tunables {
 	/* End time of boost pulse in ktime converted to usecs */
 	u64 boostpulse_endtime;
 	bool boosted;
+
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	unsigned int mode;
+	unsigned int enforced_mode;
+	u64 mode_check_timestamp;
+
+	unsigned long multi_enter_time;
+	unsigned long time_in_multi_enter;
+	unsigned int multi_enter_load;
+	unsigned long multi_exit_time;
+	unsigned long time_in_multi_exit;
+	unsigned int multi_exit_load;
+	unsigned long single_enter_time;
+	unsigned long time_in_single_enter;
+	unsigned int single_enter_load;
+	unsigned long single_exit_time;
+	unsigned long time_in_single_exit;
+	unsigned int single_exit_load;
+
+	unsigned int param_index;
+	unsigned int cur_param_index;
+
+	unsigned int *target_loads_set[MAX_PARAM_SET];
+	int ntarget_loads_set[MAX_PARAM_SET];
+	unsigned int *above_hispeed_delay_set[MAX_PARAM_SET];
+	int nabove_hispeed_delay_set[MAX_PARAM_SET];
+	unsigned int hispeed_freq_set[MAX_PARAM_SET];
+	unsigned long go_hispeed_load_set[MAX_PARAM_SET];
+	unsigned long min_sample_time_set[MAX_PARAM_SET];
+
+	spinlock_t mode_lock;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
+
 	/*
 	 * Max additional time to wait in idle, beyond timer_rate, at speeds
 	 * above minimum before wakeup to reduce speed, or -1 if unnecessary.
@@ -415,6 +473,10 @@ static u64 update_load(int cpu)
 	unsigned int delta_idle;
 	unsigned int delta_time;
 	u64 active_time;
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	unsigned int cur_load = 0;
+	struct cpufreq_loadinfo *cur_loadinfo = &per_cpu(loadinfo, cpu);
+#endif
 
 	now_idle = get_cpu_idle_time(cpu, &now, tunables->io_is_busy);
 	delta_idle = (unsigned int)(now_idle - pcpu->time_in_idle);
@@ -429,8 +491,135 @@ static u64 update_load(int cpu)
 
 	pcpu->time_in_idle = now_idle;
 	pcpu->time_in_idle_timestamp = now;
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	cur_load = (unsigned int)(active_time * 100) / delta_time;
+	per_cpu(cpu_util, cpu) = cur_load;
+
+	cur_loadinfo->load = (cur_load * ppol->policy->cur) /
+                    ppol->policy->cpuinfo.max_freq;
+	cur_loadinfo->freq = ppol->policy->cur;
+	cur_loadinfo->timestamp = now;
+#endif
 	return now;
 }
+
+#ifdef CONFIG_MODE_AUTO_CHANGE
+static unsigned int check_mode(int cpu, unsigned int cur_mode, u64 now)
+{
+	int i;
+	unsigned int ret=cur_mode, total_load=0, max_single_load=0;
+	struct cpufreq_loadinfo *cur_loadinfo;
+	struct cpufreq_interactive_policyinfo *ppol = per_cpu(polinfo, cpu);
+	struct cpufreq_interactive_tunables *tunables =
+		ppol->policy->governor_data;
+
+	if (now - tunables->mode_check_timestamp < tunables->timer_rate - 1000)
+		return ret;
+
+	if (now - tunables->mode_check_timestamp > tunables->timer_rate + 1000)
+		tunables->mode_check_timestamp = now - tunables->timer_rate;
+
+	for_each_cpu(i, ppol->policy->cpus) {
+		cur_loadinfo = &per_cpu(loadinfo, i);
+		total_load += cur_loadinfo->load;
+
+		if (cur_loadinfo->load > max_single_load)
+			max_single_load = cur_loadinfo->load;
+	}
+
+	if (!(cur_mode & SINGLE_MODE)) {
+		if (max_single_load >= tunables->single_enter_load)
+			tunables->time_in_single_enter += now - tunables->mode_check_timestamp;
+		else
+			tunables->time_in_single_enter = 0;
+
+		if (tunables->time_in_single_enter >= tunables->single_enter_time)
+			ret |= SINGLE_MODE;
+	}
+
+	if (!(cur_mode & MULTI_MODE)) {
+		if (total_load >= tunables->multi_enter_load)
+			tunables->time_in_multi_enter += now - tunables->mode_check_timestamp;
+		else
+			tunables->time_in_multi_enter = 0;
+
+		if (tunables->time_in_multi_enter >= tunables->multi_enter_time)
+			ret |= MULTI_MODE;
+	}
+
+	if (cur_mode & SINGLE_MODE) {
+		if (max_single_load < tunables->single_exit_load)
+			tunables->time_in_single_exit += now - tunables->mode_check_timestamp;
+		else
+			tunables->time_in_single_exit = 0;
+
+		if (tunables->time_in_single_exit >= tunables->single_exit_time)
+			ret &= ~SINGLE_MODE;
+	}
+
+	if (cur_mode & MULTI_MODE) {
+		if (total_load < tunables->multi_exit_load)
+			tunables->time_in_multi_exit += now - tunables->mode_check_timestamp;
+		else
+			tunables->time_in_multi_exit = 0;
+
+		if (tunables->time_in_multi_exit >= tunables->multi_exit_time)
+			ret &= ~MULTI_MODE;
+	}
+
+	trace_cpufreq_interactive_mode(cpu, max_single_load, total_load,
+		tunables->time_in_single_enter, tunables->time_in_multi_enter,
+		tunables->time_in_single_exit, tunables->time_in_multi_exit, ret);
+
+	if (tunables->time_in_single_enter >= tunables->single_enter_time)
+		tunables->time_in_single_enter = 0;
+	if (tunables->time_in_multi_enter >= tunables->multi_enter_time)
+		tunables->time_in_multi_enter = 0;
+	if (tunables->time_in_single_exit >= tunables->single_exit_time)
+		tunables->time_in_single_exit = 0;
+	if (tunables->time_in_multi_exit >= tunables->multi_exit_time)
+		tunables->time_in_multi_exit = 0;
+	tunables->mode_check_timestamp = now;
+
+	return ret;
+}
+
+static void set_new_param_set(unsigned int index, struct cpufreq_interactive_tunables *tunables)
+{
+	unsigned long flags;
+
+	tunables->hispeed_freq = tunables->hispeed_freq_set[index];
+	tunables->go_hispeed_load = tunables->go_hispeed_load_set[index];
+
+	spin_lock_irqsave(&tunables->target_loads_lock, flags);
+	tunables->target_loads = tunables->target_loads_set[index];
+	tunables->ntarget_loads = tunables->ntarget_loads_set[index];
+	spin_unlock_irqrestore(&tunables->target_loads_lock, flags);
+
+	tunables->min_sample_time = tunables->min_sample_time_set[index];
+
+	spin_lock_irqsave(&tunables->above_hispeed_delay_lock, flags);
+	tunables->above_hispeed_delay = tunables->above_hispeed_delay_set[index];
+	tunables->nabove_hispeed_delay = tunables->nabove_hispeed_delay_set[index];
+	spin_unlock_irqrestore(&tunables->above_hispeed_delay_lock, flags);
+
+	tunables->cur_param_index = index;
+}
+
+static void enter_mode(struct cpufreq_interactive_tunables *tunables)
+{
+#if 1
+	set_new_param_set(tunables->mode, tunables);
+#else
+	set_new_param_set(1, tunables);
+#endif
+}
+
+static void exit_mode(struct cpufreq_interactive_tunables *tunables)
+{
+	set_new_param_set(0, tunables);
+}
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 
 #define NEW_TASK_RATIO 75
 static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
@@ -446,7 +635,7 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 	unsigned int new_freq;
 	unsigned int loadadjfreq = 0, tmploadadjfreq;
 	unsigned int index;
-	unsigned long flags;
+	unsigned long flags, flags2;
 	unsigned long max_cpu;
 	int i, fcpu;
 	struct sched_load *sl;
@@ -455,6 +644,9 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 	bool skip_hispeed_logic, skip_min_sample_time;
 	bool policy_max_fast_restore = false;
 	bool jump_to_max = false;
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	unsigned int new_mode;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 
 	if (!down_read_trylock(&ppol->enable_sem))
 		return;
@@ -505,8 +697,30 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 			skip_hispeed_logic = true;
 			jump_to_max = true;
 		}
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	now = update_load(i);
+#endif
 	}
 	spin_unlock(&ppol->load_lock);
+
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	spin_lock_irqsave(&tunables->mode_lock, flags2);
+	if (tunables->enforced_mode)
+		new_mode = tunables->enforced_mode;
+	else
+		new_mode = check_mode(data, tunables->mode, now);
+	if (new_mode != tunables->mode) {
+		tunables->mode = new_mode;
+		if (new_mode & MULTI_MODE || new_mode & SINGLE_MODE) {
+			pr_info("Governor: enter mode 0x%x\n", tunables->mode);
+			enter_mode(tunables);
+		} else {
+			pr_info("Governor: exit mode 0x%x\n", tunables->mode);
+			exit_mode(tunables);
+		}
+	}
+	spin_unlock_irqrestore(&tunables->mode_lock, flags2);
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 
 	cpu_load = loadadjfreq / ppol->target_freq;
 	tunables->boosted = tunables->boost_val || now < tunables->boostpulse_endtime;
@@ -619,7 +833,7 @@ static void __cpufreq_interactive_timer(unsigned long data, bool is_notif)
 	spin_lock_irqsave(&speedchange_cpumask_lock, flags);
 	cpumask_set_cpu(max_cpu, &speedchange_cpumask);
 	spin_unlock_irqrestore(&speedchange_cpumask_lock, flags);
-	wake_up_process(speedchange_task);
+	wake_up_process_no_notif(speedchange_task);
 
 rearm:
 	if (!timer_pending(&ppol->policy_timer))
@@ -740,7 +954,7 @@ static void cpufreq_interactive_boost(struct cpufreq_interactive_tunables *tunab
 	spin_unlock_irqrestore(&speedchange_cpumask_lock, flags[0]);
 
 	if (anyboost)
-		wake_up_process(speedchange_task);
+		wake_up_process_no_notif(speedchange_task);
 }
 
 static int load_change_callback(struct notifier_block *nb, unsigned long val,
@@ -869,13 +1083,22 @@ static ssize_t show_target_loads(
 	int i;
 	ssize_t ret = 0;
 	unsigned long flags;
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	unsigned long flags2;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 
 	spin_lock_irqsave(&tunables->target_loads_lock, flags);
-
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	spin_lock_irqsave(&tunables->mode_lock, flags2);
+	for (i = 0; i < tunables->ntarget_loads_set[tunables->param_index]; i++)
+		ret += sprintf(buf + ret, "%u%s", tunables->target_loads_set[tunables->param_index][i],
+			       i & 0x1 ? ":" : " ");
+	spin_unlock_irqrestore(&tunables->mode_lock, flags2);
+#else
 	for (i = 0; i < tunables->ntarget_loads; i++)
 		ret += sprintf(buf + ret, "%u%s", tunables->target_loads[i],
 			       i & 0x1 ? ":" : " ");
-
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 	sprintf(buf + ret - 1, "\n");
 	spin_unlock_irqrestore(&tunables->target_loads_lock, flags);
 	return ret;
@@ -888,18 +1111,32 @@ static ssize_t store_target_loads(
 	int ntokens;
 	unsigned int *new_target_loads = NULL;
 	unsigned long flags;
-
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	unsigned long flags2;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 	new_target_loads = get_tokenized_data(buf, &ntokens);
 	if (IS_ERR(new_target_loads))
 		return PTR_RET(new_target_loads);
 
 	spin_lock_irqsave(&tunables->target_loads_lock, flags);
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	spin_lock_irqsave(&tunables->mode_lock, flags2);
+	if (tunables->target_loads_set[tunables->param_index] != default_target_loads)
+		kfree(tunables->target_loads_set[tunables->param_index]);
+	tunables->target_loads_set[tunables->param_index] = new_target_loads;
+	tunables->ntarget_loads_set[tunables->param_index] = ntokens;
+	if (tunables->cur_param_index == tunables->param_index) {
+		tunables->target_loads = new_target_loads;
+		tunables->ntarget_loads = ntokens;
+	}
+	spin_unlock_irqrestore(&tunables->mode_lock, flags2);
+#else
 	if (tunables->target_loads != default_target_loads)
 		kfree(tunables->target_loads);
 	tunables->target_loads = new_target_loads;
 	tunables->ntarget_loads = ntokens;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 	spin_unlock_irqrestore(&tunables->target_loads_lock, flags);
-
 	sched_update_freq_max_load(&controlled_cpus);
 
 	return count;
@@ -911,14 +1148,23 @@ static ssize_t show_above_hispeed_delay(
 	int i;
 	ssize_t ret = 0;
 	unsigned long flags;
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	unsigned long flags2;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 
 	spin_lock_irqsave(&tunables->above_hispeed_delay_lock, flags);
-
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	spin_lock_irqsave(&tunables->mode_lock, flags2);
+	for (i = 0; i < tunables->nabove_hispeed_delay_set[tunables->param_index]; i++)
+		ret += sprintf(buf + ret, "%u%s", tunables->above_hispeed_delay_set[tunables->param_index][i],
+			       i & 0x1 ? ":" : " ");
+	spin_unlock_irqrestore(&tunables->mode_lock, flags2);
+#else
 	for (i = 0; i < tunables->nabove_hispeed_delay; i++)
 		ret += sprintf(buf + ret, "%u%s",
 			       tunables->above_hispeed_delay[i],
 			       i & 0x1 ? ":" : " ");
-
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 	sprintf(buf + ret - 1, "\n");
 	spin_unlock_irqrestore(&tunables->above_hispeed_delay_lock, flags);
 	return ret;
@@ -931,16 +1177,32 @@ static ssize_t store_above_hispeed_delay(
 	int ntokens;
 	unsigned int *new_above_hispeed_delay = NULL;
 	unsigned long flags;
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	unsigned long flags2;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 
 	new_above_hispeed_delay = get_tokenized_data(buf, &ntokens);
 	if (IS_ERR(new_above_hispeed_delay))
 		return PTR_RET(new_above_hispeed_delay);
 
 	spin_lock_irqsave(&tunables->above_hispeed_delay_lock, flags);
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	spin_lock_irqsave(&tunables->mode_lock, flags2);
+	if (tunables->above_hispeed_delay_set[tunables->param_index] != default_above_hispeed_delay)
+		kfree(tunables->above_hispeed_delay_set[tunables->param_index]);
+	tunables->above_hispeed_delay_set[tunables->param_index] = new_above_hispeed_delay;
+	tunables->nabove_hispeed_delay_set[tunables->param_index] = ntokens;
+	if (tunables->cur_param_index == tunables->param_index) {
+		tunables->above_hispeed_delay = new_above_hispeed_delay;
+		tunables->nabove_hispeed_delay = ntokens;
+	}
+	spin_unlock_irqrestore(&tunables->mode_lock, flags2);
+#else
 	if (tunables->above_hispeed_delay != default_above_hispeed_delay)
 		kfree(tunables->above_hispeed_delay);
 	tunables->above_hispeed_delay = new_above_hispeed_delay;
 	tunables->nabove_hispeed_delay = ntokens;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 	spin_unlock_irqrestore(&tunables->above_hispeed_delay_lock, flags);
 	return count;
 
@@ -949,7 +1211,11 @@ static ssize_t store_above_hispeed_delay(
 static ssize_t show_hispeed_freq(struct cpufreq_interactive_tunables *tunables,
 		char *buf)
 {
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	return sprintf(buf, "%u\n", tunables->hispeed_freq_set[tunables->param_index]);
+#else
 	return sprintf(buf, "%u\n", tunables->hispeed_freq);
+#endif
 }
 
 static ssize_t store_hispeed_freq(struct cpufreq_interactive_tunables *tunables,
@@ -957,11 +1223,22 @@ static ssize_t store_hispeed_freq(struct cpufreq_interactive_tunables *tunables,
 {
 	int ret;
 	long unsigned int val;
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	unsigned long flags2;
+#endif
 
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	spin_lock_irqsave(&tunables->mode_lock, flags2);
+	tunables->hispeed_freq_set[tunables->param_index] = val;
+	if (tunables->cur_param_index == tunables->param_index)
+		tunables->hispeed_freq = val;
+	spin_unlock_irqrestore(&tunables->mode_lock, flags2);
+#else
 	tunables->hispeed_freq = val;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 	return count;
 }
 
@@ -992,7 +1269,11 @@ show_store_one(fast_ramp_down);
 static ssize_t show_go_hispeed_load(struct cpufreq_interactive_tunables
 		*tunables, char *buf)
 {
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	return sprintf(buf, "%lu\n", tunables->go_hispeed_load_set[tunables->param_index]);
+#else
 	return sprintf(buf, "%lu\n", tunables->go_hispeed_load);
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 }
 
 static ssize_t store_go_hispeed_load(struct cpufreq_interactive_tunables
@@ -1000,18 +1281,32 @@ static ssize_t store_go_hispeed_load(struct cpufreq_interactive_tunables
 {
 	int ret;
 	unsigned long val;
-
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	unsigned long flags2;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	spin_lock_irqsave(&tunables->mode_lock, flags2);
+	tunables->go_hispeed_load_set[tunables->param_index] = val;
+	if (tunables->cur_param_index == tunables->param_index)
+		tunables->go_hispeed_load = val;
+	spin_unlock_irqrestore(&tunables->mode_lock, flags2);
+#else
 	tunables->go_hispeed_load = val;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 	return count;
 }
 
 static ssize_t show_min_sample_time(struct cpufreq_interactive_tunables
 		*tunables, char *buf)
 {
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	return sprintf(buf, "%lu\n", tunables->min_sample_time_set[tunables->param_index]);
+#else
 	return sprintf(buf, "%lu\n", tunables->min_sample_time);
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 }
 
 static ssize_t store_min_sample_time(struct cpufreq_interactive_tunables
@@ -1019,11 +1314,21 @@ static ssize_t store_min_sample_time(struct cpufreq_interactive_tunables
 {
 	int ret;
 	unsigned long val;
-
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	unsigned long flags2;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	spin_lock_irqsave(&tunables->mode_lock, flags2);
+	tunables->min_sample_time_set[tunables->param_index] = val;
+	if (tunables->cur_param_index == tunables->param_index)
+		tunables->min_sample_time = val;
+	spin_unlock_irqrestore(&tunables->mode_lock, flags2);
+#else
 	tunables->min_sample_time = val;
+#endif /* CONFIG_MODE_AUTO_CHANGE */
 	return count;
 }
 
@@ -1329,11 +1634,110 @@ static ssize_t store_use_migration_notif(
 	return count;
 }
 
+#ifdef CONFIG_MODE_AUTO_CHANGE
+static ssize_t show_cpu_util(struct cpufreq_interactive_tunables
+		*tunables, char *buf)
+{
+	int i;
+	ssize_t ret = 0;
+
+	for_each_online_cpu(i) {
+		ret += sprintf(buf + ret, "%3u ", per_cpu(cpu_util, i));
+	}
+	sprintf(buf + ret -1, "\n");
+	return ret;
+}
+#endif
+
+
 /*
  * Create show/store routines
  * - sys: One governor instance for complete SYSTEM
  * - pol: One governor instance per struct cpufreq_policy
  */
+#ifdef CONFIG_MODE_AUTO_CHANGE
+#define index(file_name)					\
+static ssize_t show_##file_name(			\
+				struct cpufreq_interactive_tunables *tunables, char *buf)	\
+{									\
+	return sprintf(buf, "%u\n", tunables->file_name);				\
+}									\
+									\
+static ssize_t store_##file_name(						\
+		struct cpufreq_interactive_tunables *tunables,		\
+		const char *buf, size_t count)				\
+{									\
+        int ret;							\
+        long unsigned int val;						\
+									\
+        ret = kstrtoul(buf, 0, &val);				\
+        if (ret < 0)							\
+                return ret;						\
+									\
+	val &= MULTI_MODE | SINGLE_MODE | NO_MODE;			\
+        tunables->file_name = val;							\
+        return count;							\
+}									\
+
+index(mode);
+index(enforced_mode);
+index(param_index);
+
+#define load(file_name)					\
+static ssize_t show_##file_name(				\
+				struct cpufreq_interactive_tunables *tunables, char *buf)	\
+{									\
+        return sprintf(buf, "%u\n", tunables->file_name);				\
+}									\
+									\
+static ssize_t store_##file_name(				\
+		struct cpufreq_interactive_tunables *tunables,		\
+		const char *buf, size_t count)				\
+{									\
+        int ret;							\
+        long unsigned int val;						\
+									\
+        ret = kstrtoul(buf, 0, &val);				\
+        if (ret < 0)							\
+                return ret;						\
+									\
+        tunables->file_name = val;							\
+        return count;							\
+}									\
+
+load(multi_enter_load);
+load(multi_exit_load);
+load(single_enter_load);
+load(single_exit_load);
+
+#define time(file_name)					\
+static ssize_t show_##file_name(					\
+				struct cpufreq_interactive_tunables *tunables, char *buf)	\
+{									\
+        return sprintf(buf, "%lu\n", tunables->file_name);				\
+}									\
+									\
+static ssize_t store_##file_name(			\
+		struct cpufreq_interactive_tunables *tunables,		\
+		const char *buf, size_t count)				\
+{									\
+        int ret;							\
+        unsigned long val;						\
+									\
+        ret = kstrtoul(buf, 0, &val);				\
+        if (ret < 0)							\
+                return ret;						\
+									\
+        tunables->file_name = val;							\
+        return count;							\
+}									\
+
+time(multi_enter_time);
+time(multi_exit_time);
+time(single_enter_time);
+time(single_exit_time);
+#endif /* CONFIG_MODE_AUTO_CHANGE */
+
 #define show_gov_pol_sys(file_name)					\
 static ssize_t show_##file_name##_gov_sys				\
 (struct kobject *kobj, struct attribute *attr, char *buf)		\
@@ -1382,6 +1786,20 @@ show_store_gov_pol_sys(max_freq_hysteresis);
 show_store_gov_pol_sys(align_windows);
 show_store_gov_pol_sys(ignore_hispeed_on_notif);
 show_store_gov_pol_sys(fast_ramp_down);
+#ifdef CONFIG_MODE_AUTO_CHANGE
+show_store_gov_pol_sys(mode);
+show_store_gov_pol_sys(enforced_mode);
+show_store_gov_pol_sys(param_index);
+show_store_gov_pol_sys(multi_enter_load);
+show_store_gov_pol_sys(multi_exit_load);
+show_store_gov_pol_sys(single_enter_load);
+show_store_gov_pol_sys(single_exit_load);
+show_store_gov_pol_sys(multi_enter_time);
+show_store_gov_pol_sys(multi_exit_time);
+show_store_gov_pol_sys(single_enter_time);
+show_store_gov_pol_sys(single_exit_time);
+show_gov_pol_sys(cpu_util);
+#endif
 
 #define gov_sys_attr_rw(_name)						\
 static struct global_attr _name##_gov_sys =				\
@@ -1411,12 +1829,32 @@ gov_sys_pol_attr_rw(max_freq_hysteresis);
 gov_sys_pol_attr_rw(align_windows);
 gov_sys_pol_attr_rw(ignore_hispeed_on_notif);
 gov_sys_pol_attr_rw(fast_ramp_down);
-
+#ifdef CONFIG_MODE_AUTO_CHANGE
+gov_sys_pol_attr_rw(mode);
+gov_sys_pol_attr_rw(enforced_mode);
+gov_sys_pol_attr_rw(param_index);
+gov_sys_pol_attr_rw(multi_enter_load);
+gov_sys_pol_attr_rw(multi_exit_load);
+gov_sys_pol_attr_rw(single_enter_load);
+gov_sys_pol_attr_rw(single_exit_load);
+gov_sys_pol_attr_rw(multi_enter_time);
+gov_sys_pol_attr_rw(multi_exit_time);
+gov_sys_pol_attr_rw(single_enter_time);
+gov_sys_pol_attr_rw(single_exit_time);
+#endif
 static struct global_attr boostpulse_gov_sys =
 	__ATTR(boostpulse, 0200, NULL, store_boostpulse_gov_sys);
 
 static struct freq_attr boostpulse_gov_pol =
 	__ATTR(boostpulse, 0200, NULL, store_boostpulse_gov_pol);
+
+#ifdef CONFIG_MODE_AUTO_CHANGE
+static struct global_attr cpu_util_gov_sys =
+	__ATTR(cpu_util, 0440, show_cpu_util_gov_sys, NULL);
+
+static struct freq_attr cpu_util_gov_pol =
+	__ATTR(cpu_util, 0440, show_cpu_util_gov_pol, NULL);
+#endif
 
 /* One Governor instance for entire system */
 static struct attribute *interactive_attributes_gov_sys[] = {
@@ -1437,6 +1875,20 @@ static struct attribute *interactive_attributes_gov_sys[] = {
 	&align_windows_gov_sys.attr,
 	&ignore_hispeed_on_notif_gov_sys.attr,
 	&fast_ramp_down_gov_sys.attr,
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	&mode_gov_sys.attr,
+	&enforced_mode_gov_sys.attr,
+	&param_index_gov_sys.attr,
+	&multi_enter_load_gov_sys.attr,
+	&multi_exit_load_gov_sys.attr,
+	&single_enter_load_gov_sys.attr,
+	&single_exit_load_gov_sys.attr,
+	&multi_enter_time_gov_sys.attr,
+	&multi_exit_time_gov_sys.attr,
+	&single_enter_time_gov_sys.attr,
+	&single_exit_time_gov_sys.attr,
+	&cpu_util_gov_sys.attr,
+#endif
 	NULL,
 };
 
@@ -1464,6 +1916,20 @@ static struct attribute *interactive_attributes_gov_pol[] = {
 	&align_windows_gov_pol.attr,
 	&ignore_hispeed_on_notif_gov_pol.attr,
 	&fast_ramp_down_gov_pol.attr,
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	&mode_gov_pol.attr,
+	&enforced_mode_gov_pol.attr,
+	&param_index_gov_pol.attr,
+	&multi_enter_load_gov_pol.attr,
+	&multi_exit_load_gov_pol.attr,
+	&single_enter_load_gov_pol.attr,
+	&single_exit_load_gov_pol.attr,
+	&multi_enter_time_gov_pol.attr,
+	&multi_exit_time_gov_pol.attr,
+	&single_enter_time_gov_pol.attr,
+	&single_exit_time_gov_pol.attr,
+	&cpu_util_gov_pol.attr,
+#endif
 	NULL,
 };
 
@@ -1483,6 +1949,30 @@ static struct attribute_group *get_sysfs_attr(void)
 static void cpufreq_interactive_nop_timer(unsigned long data)
 {
 }
+
+#ifdef CONFIG_MODE_AUTO_CHANGE
+static void cpufreq_param_set_init(struct cpufreq_interactive_tunables *tunables)
+{
+	unsigned int i;
+	unsigned long flags;
+
+	tunables->multi_enter_load = DEFAULT_TARGET_LOAD * num_possible_cpus();
+
+	spin_lock_irqsave(&tunables->mode_lock, flags);
+	for (i=0 ; i<MAX_PARAM_SET; i++) {
+		tunables->hispeed_freq_set[i] = 0;
+		tunables->go_hispeed_load_set[i] = tunables->go_hispeed_load;
+		tunables->target_loads_set[i] = tunables->target_loads;
+		tunables->ntarget_loads_set[i] = tunables->ntarget_loads;
+		tunables->min_sample_time_set[i] = tunables->min_sample_time;
+		//tunables->timer_rate_set[i] = timer_rate;
+		tunables->above_hispeed_delay_set[i] = tunables->above_hispeed_delay;
+		tunables->nabove_hispeed_delay_set[i] = tunables->nabove_hispeed_delay;
+		//tunables->sampling_down_factor_set[i] = sampling_down_factor;
+	}
+	spin_unlock_irqrestore(&tunables->mode_lock, flags);
+}
+#endif
 
 static struct cpufreq_interactive_tunables *alloc_tunable(
 					struct cpufreq_policy *policy)
@@ -1504,6 +1994,18 @@ static struct cpufreq_interactive_tunables *alloc_tunable(
 	tunables->boostpulse_duration_val = DEFAULT_MIN_SAMPLE_TIME;
 	tunables->timer_slack_val = DEFAULT_TIMER_SLACK;
 
+#ifdef CONFIG_MODE_AUTO_CHANGE
+	spin_lock_init(&tunables->mode_lock);
+	cpufreq_param_set_init(tunables);
+	tunables->multi_enter_time = DEFAULT_MULTI_ENTER_TIME;
+	tunables->multi_enter_load = 4 * DEFAULT_TARGET_LOAD;
+	tunables->multi_exit_time = DEFAULT_MULTI_EXIT_TIME;
+	tunables->multi_exit_load = 4 * DEFAULT_TARGET_LOAD;
+	tunables->single_enter_time = DEFAULT_SINGLE_ENTER_TIME;
+	tunables->single_enter_load = DEFAULT_TARGET_LOAD;
+	tunables->single_exit_time = DEFAULT_SINGLE_EXIT_TIME;
+	tunables->single_exit_load = DEFAULT_TARGET_LOAD;
+#endif
 	spin_lock_init(&tunables->target_loads_lock);
 	spin_lock_init(&tunables->above_hispeed_delay_lock);
 
@@ -1577,6 +2079,7 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 		unsigned int event)
 {
 	int rc;
+	unsigned int j;
 	struct cpufreq_interactive_policyinfo *ppol;
 	struct cpufreq_frequency_table *freq_table;
 	struct cpufreq_interactive_tunables *tunables;
@@ -1679,7 +2182,11 @@ static int cpufreq_governor_interactive(struct cpufreq_policy *policy,
 		freq_table = cpufreq_frequency_get_table(policy->cpu);
 		if (!tunables->hispeed_freq)
 			tunables->hispeed_freq = policy->max;
-
+#ifdef CONFIG_MODE_AUTO_CHANGE
+		for (j=0 ; j<MAX_PARAM_SET ; j++)
+			if (!tunables->hispeed_freq_set[j])
+				tunables->hispeed_freq_set[j] = policy->max;
+#endif
 		ppol = per_cpu(polinfo, policy->cpu);
 		ppol->policy = policy;
 		ppol->target_freq = policy->cur;
@@ -1768,7 +2275,7 @@ static int __init cpufreq_interactive_init(void)
 	get_task_struct(speedchange_task);
 
 	/* NB: wake up so the thread does not look hung to the freezer */
-	wake_up_process(speedchange_task);
+	wake_up_process_no_notif(speedchange_task);
 
 	return cpufreq_register_governor(&cpufreq_gov_interactive);
 }

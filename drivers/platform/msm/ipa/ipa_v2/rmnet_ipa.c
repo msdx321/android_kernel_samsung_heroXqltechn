@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -624,7 +624,8 @@ static int wwan_add_ul_flt_rule_to_ipa(void)
 	param->global = false;
 	param->num_rules = (uint8_t)1;
 
-	for (i = 0; i < num_q6_rule; i++) {
+	mutex_lock(&ipa_qmi_lock);
+	for (i = 0; i < num_q6_rule && (ipa_qmi_ctx != NULL); i++) {
 		param->ip = ipa_qmi_ctx->q6_ul_filter_rule[i].ip;
 		memset(&flt_rule_entry, 0, sizeof(struct ipa_flt_rule_add));
 		flt_rule_entry.at_rear = true;
@@ -652,12 +653,14 @@ static int wwan_add_ul_flt_rule_to_ipa(void)
 				param->rules[0].flt_rule_hdl;
 		}
 	}
+	mutex_unlock(&ipa_qmi_lock);
 
 	/* send ipa_fltr_installed_notif_req_msg_v01 to Q6*/
 	req->source_pipe_index =
 		ipa2_get_ep_mapping(IPA_CLIENT_APPS_LAN_WAN_PROD);
 	req->install_status = QMI_RESULT_SUCCESS_V01;
 	req->filter_index_list_len = num_q6_rule;
+	mutex_lock(&ipa_qmi_lock);
 	for (i = 0; i < num_q6_rule; i++) {
 		if (ipa_qmi_ctx->q6_ul_filter_rule[i].ip == IPA_IP_v4) {
 			req->filter_index_list[i].filter_index = num_v4_rule;
@@ -669,6 +672,7 @@ static int wwan_add_ul_flt_rule_to_ipa(void)
 		req->filter_index_list[i].filter_handle =
 			ipa_qmi_ctx->q6_ul_filter_rule[i].filter_hdl;
 	}
+	mutex_unlock(&ipa_qmi_lock);
 	if (qmi_filter_notify_send(req)) {
 		IPAWANDBG("add filter rule index on A7-RX failed\n");
 		retval = -EFAULT;
@@ -869,7 +873,8 @@ int wwan_update_mux_channel_prop(void)
 	int ret = 0, i;
 	/* install UL filter rules */
 	if (egress_set) {
-		if (ipa_qmi_ctx->modem_cfg_emb_pipe_flt == false) {
+		if (ipa_qmi_ctx &&
+			ipa_qmi_ctx->modem_cfg_emb_pipe_flt == false) {
 			IPAWANDBG("setup UL filter rules\n");
 			if (a7_ul_flt_set) {
 				IPAWANDBG("del previous UL filter rules\n");
@@ -1147,13 +1152,10 @@ static void apps_ipa_packet_receive_notify(void *priv,
 	skb->dev = ipa_netdevs[0];
 	skb->protocol = htons(ETH_P_MAP);
 
-	if (dev->stats.rx_packets % IPA_WWAN_RX_SOFTIRQ_THRESH == 0)
-		result = netif_rx_ni(skb);
-	else
-		result = netif_rx(skb);
+	result = netif_rx_ni(skb);
 
 	if (result)	{
-		pr_err_ratelimited(DEV_NAME " %s:%d fail on netif_rx\n",
+		pr_err_ratelimited(DEV_NAME " %s:%d fail on netif_rx_ni\n",
 				__func__, __LINE__);
 		dev->stats.rx_dropped++;
 	}
@@ -1349,6 +1351,11 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 					rmnet_mux_val.mux_id);
 				return rc;
 			}
+			if (rmnet_index >= MAX_NUM_OF_MUX_CHANNEL) {
+				IPAWANERR("Exceed mux_channel limit(%d)\n",
+				rmnet_index);
+				return -EFAULT;
+			}
 			IPAWANDBG("ADD_MUX_CHANNEL(%d, name: %s)\n",
 			extend_ioctl_data.u.rmnet_mux_val.mux_id,
 			extend_ioctl_data.u.rmnet_mux_val.vchannel_name);
@@ -1427,7 +1434,8 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
 			if (num_q6_rule != 0) {
 				/* already got Q6 UL filter rules*/
-				if (ipa_qmi_ctx->modem_cfg_emb_pipe_flt
+				if (ipa_qmi_ctx &&
+					ipa_qmi_ctx->modem_cfg_emb_pipe_flt
 					== false)
 					rc = wwan_add_ul_flt_rule_to_ipa();
 				else
@@ -1446,6 +1454,22 @@ static int ipa_wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			break;
 		case RMNET_IOCTL_SET_INGRESS_DATA_FORMAT:/*  Set IDF  */
 			IPAWANDBG("get RMNET_IOCTL_SET_INGRESS_DATA_FORMAT\n");
+
+			/* clean ipa ingress data path before init */
+			mutex_lock(&ipa_to_apps_pipe_handle_guard);
+			if (atomic_read(&is_ssr)) {
+				IPAWANERR("In SSR sequence/recovery\n");
+				mutex_unlock(&ipa_to_apps_pipe_handle_guard);
+				rc = -EFAULT;
+				break;
+			}
+			rc = ipa2_teardown_sys_pipe(ipa_to_apps_hdl);
+			if (rc < 0)
+				IPAWANERR("Failed to teardown IPA->APPS pipe\n");
+			else
+				ipa_to_apps_hdl = -1;
+			mutex_unlock(&ipa_to_apps_pipe_handle_guard);
+
 			if ((extend_ioctl_data.u.data) &
 					RMNET_IOCTL_INGRESS_FORMAT_CHECKSUM)
 				ipa_to_apps_ep_cfg.ipa_ep_cfg.cfg.
@@ -2078,8 +2102,6 @@ static int ipa_wwan_remove(struct platform_device *pdev)
 	ipa_del_mux_qmap_hdrs();
 	if (ipa_qmi_ctx && ipa_qmi_ctx->modem_cfg_emb_pipe_flt == false)
 		wwan_del_ul_flt_rule_to_ipa();
-	/* clean up cached QMI msg/handlers */
-	ipa_qmi_service_exit();
 	ipa_cleanup_deregister_intf();
 	atomic_set(&is_initialized, 0);
 	pr_info("rmnet_ipa completed deinitialization\n");
@@ -2207,6 +2229,9 @@ static int ssr_notifier_cb(struct notifier_block *this,
 		}
 		if (SUBSYS_BEFORE_POWERUP == code) {
 			pr_info("IPA received MPSS BEFORE_POWERUP\n");
+			if (atomic_read(&is_ssr))
+				/* clean up cached QMI msg/handlers */
+				ipa_qmi_service_exit();
 			ipa2_proxy_clk_vote();
 			pr_info("IPA BEFORE_POWERUP handling is complete\n");
 			return NOTIFY_DONE;
@@ -2699,6 +2724,9 @@ static int __init ipa_wwan_init(void)
 
 	mutex_init(&ipa_to_apps_pipe_handle_guard);
 	ipa_to_apps_hdl = -1;
+
+	ipa_qmi_init();
+
 	/* Register for Modem SSR */
 	subsys_notify_handle = subsys_notif_register_notifier(SUBSYS_MODEM,
 						&ssr_notifier);
@@ -2711,6 +2739,7 @@ static int __init ipa_wwan_init(void)
 static void __exit ipa_wwan_cleanup(void)
 {
 	int ret;
+	ipa_qmi_cleanup();
 	mutex_destroy(&ipa_to_apps_pipe_handle_guard);
 	ret = subsys_notif_unregister_notifier(subsys_notify_handle,
 					&ssr_notifier);

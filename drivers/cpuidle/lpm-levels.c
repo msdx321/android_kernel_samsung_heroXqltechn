@@ -46,6 +46,19 @@
 #include <asm/suspend.h>
 #include "lpm-levels.h"
 #include "lpm-workarounds.h"
+
+#ifdef CONFIG_SEC_PM
+#include <linux/regulator/consumer.h>
+#include <linux/qpnp/pin.h>
+#endif
+
+#ifdef CONFIG_SEC_PM_DEBUG
+#include <linux/sec-pinmux.h>
+#ifdef CONFIG_SEC_GPIO_DVS
+#include <linux/secgpio_dvs.h>
+#endif
+#endif
+
 #include <trace/events/power.h>
 #define CREATE_TRACE_POINTS
 #include <trace/events/trace_msm_low_power.h>
@@ -67,6 +80,8 @@ enum debug_event {
 	CPU_EXIT,
 	CLUSTER_ENTER,
 	CLUSTER_EXIT,
+	CLUSTER_BAILOUT,
+	CLUSTER_ENTER_EXIT,
 	PRE_PC_CB,
 };
 
@@ -101,6 +116,12 @@ static void cluster_prepare(struct lpm_cluster *cluster,
 static struct notifier_block __refdata lpm_cpu_nblk = {
 	.notifier_call = lpm_cpu_callback,
 };
+
+#ifdef CONFIG_SEC_PM_DEBUG
+static int msm_pm_sleep_sec_debug;
+module_param_named(secdebug,
+	msm_pm_sleep_sec_debug, int, S_IRUGO | S_IWUSR | S_IWGRP);
+#endif
 
 static bool menu_select;
 module_param_named(
@@ -526,6 +547,9 @@ static int cluster_configure(struct lpm_cluster *cluster, int idx,
 	sched_set_cluster_dstate(&cluster->child_cpus, idx, 0, 0);
 
 	cluster->last_level = idx;
+	update_debug_pc_event(CLUSTER_ENTER_EXIT, idx,
+	cluster->num_children_in_sync.bits[0],
+	cluster->child_cpus.bits[0], from_idle);
 	return 0;
 
 failed_set_mode:
@@ -622,6 +646,10 @@ static void cluster_unprepare(struct lpm_cluster *cluster,
 			cpumask_andnot(&lvl->num_cpu_votes,
 					&lvl->num_cpu_votes, cpu);
 	}
+
+	update_debug_pc_event(CLUSTER_BAILOUT, cluster->last_level,
+		cluster->default_level,
+		first_cpu, from_idle);
 
 	if (!first_cpu || cluster->last_level == cluster->default_level)
 		goto unlock_return;
@@ -1074,6 +1102,35 @@ static int lpm_suspend_prepare(void)
 {
 	suspend_in_progress = true;
 	msm_mpm_suspend_prepare();
+
+#ifdef CONFIG_SEC_GPIO_DVS
+	/************************ Caution !!! ****************************
+	 * This functiongit a must be located in appropriate SLEEP position
+	 * in accordance with the specification of each BB vendor.
+	 ************************ Caution !!! ****************************/
+	gpio_dvs_check_sleepgpio();
+#ifdef SECGPIO_SLEEP_DEBUGGING
+	/************************ Caution !!! ****************************/
+	/* This func. must be located in an appropriate position for GPIO SLEEP debugging
+     * in accordance with the specification of each BB vendor, and
+     * the func. must be called after calling the function "gpio_dvs_check_sleepgpio"
+     */
+	/************************ Caution !!! ****************************/
+	gpio_dvs_set_sleepgpio();
+#endif
+#endif
+
+#ifdef CONFIG_SEC_PM
+	regulator_showall_enabled();
+#endif
+
+#ifdef CONFIG_SEC_PM_DEBUG
+	if (msm_pm_sleep_sec_debug) {
+		msm_gpio_print_enabled();
+		qpnp_debug_suspend_show();
+	}
+#endif
+
 	lpm_stats_suspend_enter();
 
 	return 0;

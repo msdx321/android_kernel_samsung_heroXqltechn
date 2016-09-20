@@ -47,6 +47,10 @@
 #include <asm/tlb.h>
 #include <asm/mmu_context.h>
 
+#ifdef CONFIG_MSM_APP_SETTINGS
+#include <asm/app_api.h>
+#endif
+
 #include "internal.h"
 
 #ifndef arch_mmap_check
@@ -1262,7 +1266,6 @@ static inline int mlock_future_check(struct mm_struct *mm,
 /*
  * The caller must hold down_write(&current->mm->mmap_sem).
  */
-
 unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 			unsigned long len, unsigned long prot,
 			unsigned long flags, unsigned long pgoff,
@@ -1272,6 +1275,34 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 	vm_flags_t vm_flags;
 
 	*populate = 0;
+
+	while (file && (file->f_mode & FMODE_NONMAPPABLE))
+		file = file->f_op->get_lower_file(file);
+
+#ifdef CONFIG_MSM_APP_SETTINGS
+	if (file && file->f_path.dentry) {
+		const char *name = file->f_path.dentry->d_name.name;
+		char *libs[10] = {0};
+		unsigned int count;
+		bool found = false;
+		int i;
+
+		get_lib_names(libs, &count);
+		for (i = 0; i < count; i++) {
+			if (unlikely(!strcmp(name, libs[i]))) {
+				found = true;
+				break;
+			}
+		}
+		if (found) {
+			preempt_disable();
+			set_app_setting_bit(APP_SETTING_BIT);
+			/* This will take care of child processes as well */
+			current->mm->app_setting = 1;
+			preempt_enable();
+		}
+	}
+#endif
 
 	/*
 	 * Does the application expect PROT_READ to imply PROT_EXEC?
@@ -1926,8 +1957,13 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 	struct vm_area_struct *vma;
 	struct vm_unmapped_area_info info;
 
-	if (len > TASK_SIZE - mmap_min_addr)
+	if (len > TASK_SIZE - mmap_min_addr) {
+		printk(KERN_ERR "%s %d - (len > TASK_SIZE - mmap_min_addr) len=%lx "
+			"TASK_SIZE=%lx mmap_min_addr=%lx pid=%d addr=%lx\n",
+			__func__, __LINE__,
+			len, TASK_SIZE, mmap_min_addr, current->pid, addr);
 		return -ENOMEM;
+	}
 
 	if (flags & MAP_FIXED)
 		return addr;
@@ -1945,7 +1981,15 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 	info.low_limit = mm->mmap_base;
 	info.high_limit = TASK_SIZE;
 	info.align_mask = 0;
-	return vm_unmapped_area(&info);
+	addr = vm_unmapped_area(&info);
+	if (addr == -ENOMEM)
+		printk(KERN_ERR "%s %d - NOMEM from vm_unmapped_area "
+			"pid=%d flags=%lx length=%lx low_limit=%lx "
+			"high_limit=%lx align_mask=%lx\n",
+			__func__, __LINE__,
+			current->pid, info.flags, info.length, info.low_limit,
+			info.high_limit, info.align_mask);
+	return addr;
 }
 #endif
 
@@ -1965,8 +2009,13 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	struct vm_unmapped_area_info info;
 
 	/* requested length too big for entire address space */
-	if (len > TASK_SIZE - mmap_min_addr)
+	if (len > TASK_SIZE - mmap_min_addr) {
+		printk(KERN_ERR "%s %d - (len > TASK_SIZE - mmap_min_addr) len=%lx "
+			"TASK_SIZE=%lx mmap_min_addr=%lx pid=%d addr=%lx\n",
+			__func__, __LINE__,
+			len, TASK_SIZE, mmap_min_addr, current->pid, addr);
 		return -ENOMEM;
+	}
 
 	if (flags & MAP_FIXED)
 		return addr;
@@ -2000,6 +2049,13 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 		info.high_limit = TASK_SIZE;
 		addr = vm_unmapped_area(&info);
 	}
+	if (addr == -ENOMEM)
+		printk(KERN_ERR "%s %d - NOMEM from vm_unmapped_area "
+			"pid=%d flags=%lx length=%lx low_limit=%lx "
+			"high_limit=%lx align_mask=%lx\n",
+			__func__, __LINE__,
+			current->pid, info.flags, info.length, info.low_limit,
+			info.high_limit, info.align_mask);
 
 	return addr;
 }

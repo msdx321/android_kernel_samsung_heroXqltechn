@@ -32,8 +32,8 @@
 #define MSM_FB_MAX_DEV_LIST 32
 
 #define MSM_FB_ENABLE_DBGFS
-#define WAIT_FENCE_FIRST_TIMEOUT (3 * MSEC_PER_SEC)
-#define WAIT_FENCE_FINAL_TIMEOUT (7 * MSEC_PER_SEC)
+#define WAIT_FENCE_FIRST_TIMEOUT (10 * MSEC_PER_SEC)
+#define WAIT_FENCE_FINAL_TIMEOUT (15 * MSEC_PER_SEC)
 #define WAIT_MAX_FENCE_TIMEOUT (WAIT_FENCE_FIRST_TIMEOUT + \
 					WAIT_FENCE_FINAL_TIMEOUT)
 #define WAIT_MIN_FENCE_TIMEOUT  (1)
@@ -231,6 +231,7 @@ struct msm_mdp_interface {
 	void (*check_dsi_status)(struct work_struct *work, uint32_t interval);
 	int (*configure_panel)(struct msm_fb_data_type *mfd, int mode,
 				int dest_ctrl);
+	int (*ad_shutdown_cleanup)(struct msm_fb_data_type *mfd);
 	int (*input_event_handler)(struct msm_fb_data_type *mfd);
 	int (*pp_release_fnc)(struct msm_fb_data_type *mfd);
 	void *private1;
@@ -271,7 +272,7 @@ struct msm_fb_data_type {
 
 	int idle_time;
 	u32 idle_state;
-	struct delayed_work idle_notify_work;
+	struct delayed_work idle_notify_work;		
 
 	bool validate_pending;
 

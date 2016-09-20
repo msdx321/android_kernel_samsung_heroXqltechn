@@ -350,6 +350,15 @@ static inline u32 msm_isp_evt_mask_to_isp_event(u32 evt_mask)
 	case ISP_EVENT_MASK_INDEX_MASK_FE_READ_DONE:
 		evt_id = ISP_EVENT_FE_READ_DONE;
 		break;
+	case ISP_EVENT_MASK_INDEX_PING_PONG_MISMATCH:
+		evt_id = ISP_EVENT_PING_PONG_MISMATCH;
+		break;
+	case ISP_EVENT_MASK_INDEX_REG_UPDATE_MISSING:
+		evt_id = ISP_EVENT_REG_UPDATE_MISSING;
+		break;
+	case ISP_EVENT_MASK_INDEX_BUF_FATAL_ERROR:
+		evt_id = ISP_EVENT_BUF_FATAL_ERROR;
+		break;
 	default:
 		evt_id = ISP_EVENT_SUBS_MASK_NONE;
 		break;
@@ -424,7 +433,7 @@ static inline int msm_isp_process_event_subscription(struct v4l2_fh *fh,
 	}
 
 	for (evt_mask_index = ISP_EVENT_MASK_INDEX_STATS_NOTIFY;
-		evt_mask_index <= ISP_EVENT_MASK_INDEX_MASK_FE_READ_DONE;
+		evt_mask_index <= ISP_EVENT_MASK_INDEX_BUF_FATAL_ERROR;
 		evt_mask_index++) {
 		if (evt_mask & (1<<evt_mask_index)) {
 			evt_id = msm_isp_evt_mask_to_isp_event(evt_mask_index);
@@ -921,6 +930,40 @@ static int msm_isp_proc_cmd_list(struct vfe_device *vfe_dev, void *arg)
 }
 #endif /* CONFIG_COMPAT */
 
+static enum cam_ahb_clk_vote msm_isp_get_cam_clk_vote(
+	 enum msm_vfe_ahb_clk_vote vote)
+{
+	switch (vote) {
+	case MSM_ISP_CAMERA_AHB_SVS_VOTE:
+		return CAMERA_AHB_SVS_VOTE;
+	case MSM_ISP_CAMERA_AHB_TURBO_VOTE:
+		return CAMERA_AHB_TURBO_VOTE;
+	case MSM_ISP_CAMERA_AHB_NOMINAL_VOTE:
+		return CAMERA_AHB_NOMINAL_VOTE;
+	case MSM_ISP_CAMERA_AHB_SUSPEND_VOTE:
+		return CAMERA_AHB_SUSPEND_VOTE;
+	}
+	return 0;
+}
+
+static int msm_isp_ahb_cfg(struct vfe_device *vfe_dev, void *arg)
+{
+	int rc = 0;
+	struct msm_isp_ahb_clk_cfg *ahb_cfg = arg;
+	enum cam_ahb_clk_vote vote;
+
+	vote = msm_isp_get_cam_clk_vote(ahb_cfg->vote);
+
+	if (vote && vfe_dev->ahb_vote != vote) {
+		rc = cam_config_ahb_clk(CAM_AHB_CLIENT_VFE, vote);
+		if (rc)
+			pr_err("%s: failed to set ahb vote to %x\n",
+				__func__, vote);
+		else
+			vfe_dev->ahb_vote = vote;
+	}
+	return rc;
+}
 
 static long msm_isp_ioctl_unlocked(struct v4l2_subdev *sd,
 	unsigned int cmd, void *arg)
@@ -1027,6 +1070,11 @@ static long msm_isp_ioctl_unlocked(struct v4l2_subdev *sd,
 	case VIDIOC_MSM_ISP_INPUT_CFG:
 		mutex_lock(&vfe_dev->core_mutex);
 		rc = msm_isp_cfg_input(vfe_dev, arg);
+		mutex_unlock(&vfe_dev->core_mutex);
+		break;
+	case VIDIOC_MSM_ISP_AHB_CLK_CFG:
+		mutex_lock(&vfe_dev->core_mutex);
+		rc = msm_isp_ahb_cfg(vfe_dev, arg);
 		mutex_unlock(&vfe_dev->core_mutex);
 		break;
 	case VIDIOC_MSM_ISP_SET_DUAL_HW_MASTER_SLAVE:
@@ -2103,6 +2151,11 @@ int msm_isp_open_node(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 
 	ISP_DBG("%s open_cnt %u\n", __func__, vfe_dev->vfe_open_cnt);
 
+	if (vfe_dev->common_data == NULL) {
+		pr_err("%s: Error in probe. No common_data\n", __func__);
+		return -EINVAL;
+	}
+
 	mutex_lock(&vfe_dev->realtime_mutex);
 	mutex_lock(&vfe_dev->core_mutex);
 
@@ -2283,7 +2336,8 @@ void msm_isp_save_framedrop_values(struct vfe_device *vfe_dev,
 		stream_info =
 			&vfe_dev->axi_data.stream_info[j];
 		spin_lock_irqsave(&stream_info->lock, flags);
-		stream_info->prev_framedrop_period &= ~0x80000000;
+		stream_info->activated_framedrop_period  =
+			stream_info->requested_framedrop_period;
 		spin_unlock_irqrestore(&stream_info->lock, flags);
 	}
 }

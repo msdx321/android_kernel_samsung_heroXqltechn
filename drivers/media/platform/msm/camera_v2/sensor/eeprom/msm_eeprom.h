@@ -28,6 +28,15 @@ struct msm_eeprom_ctrl_t;
 	static struct mutex mutexname = __MUTEX_INITIALIZER(mutexname)
 
 #define PROPERTY_MAXSIZE 32
+#define FRONT_CAM_MAP_VERSION_ADDR  (0x0043)
+#define REAR_CAM_MAP_VERSION_ADDR  (0x0063)
+
+#define FROM_AF_CAL_PAN_ADDR          0x3C30
+#define FROM_AF_CAL_MACRO_ADDR        0x3C28
+#define FROM_FRONT_SENSOR_ID_ADDR     0x0054
+#define FROM_REAR_SENSOR_ID_ADDR      0x00B8
+
+#define FROM_SENSOR_ID_SIZE 16
 
 struct msm_eeprom_ctrl_t {
 	struct platform_device *pdev;
@@ -41,10 +50,10 @@ struct msm_eeprom_ctrl_t {
 	enum i2c_freq_mode_t i2c_freq_mode;
 
 	struct msm_camera_i2c_client i2c_client;
+	struct msm_eeprom_memory_block_t cal_data;
+	uint16_t is_supported;
 	struct msm_eeprom_board_info *eboard_info;
 	uint32_t subdev_id;
-	uint8_t *read_mem;
-	int32_t read_data_size;
 };
 
 #endif

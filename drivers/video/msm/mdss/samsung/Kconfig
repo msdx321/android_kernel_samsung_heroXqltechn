@@ -1,0 +1,64 @@
+config SAMSUNG_DEBUG_DISPLAY
+    bool "Add Samsung Debugging code"
+    default n
+
+config FB_MSM_MDSS_SAMSUNG
+	depends on FB_MSM_MDSS
+	bool "mdss config for samsung product"
+	default n
+	---help---
+	Mdss config signature for samsung product
+
+#
+#	PANEL UNIQUE FEATURE
+#
+config DUAL_PANEL
+	depends on FB_MSM_MDSS_SAMSUNG
+	bool "dual paneloperation"
+	default n
+	---help---
+	dual panel operation support
+
+config PARTIAL_UPDATE
+	depends on FB_MSM_MDSS_SAMSUNG
+	bool "partial update operation"
+	default n
+	---help---
+	partial update operation support
+
+config CABC_FUNCTION
+	depends on FB_MSM_MDSS_SAMSUNG
+	bool "DDI cabc operation"
+	default n
+	---help---
+	DDI cabc operation support
+
+#
+#	HOW TO MAKE DEF-CONFIG NAME FOR PANEL
+#
+#	PANEL_DDI-model_PANEL-model_RESOLUTION
+#	PANEL_S6E3FA2    _AMS510CV01_FHD
+#	PANEL_S6E3FA2_AMS510CV01_FHD
+#
+
+config PANEL_S6E3HF4_AMB526JS01_WQHD
+	depends on FB_MSM_MDSS_SAMSUNG
+	bool "LSI S6E3HF4 LDI"
+	default n
+	---help---
+	LSI S6E3HF4 LDI 1440_2560 HERO DSC
+
+config PANEL_S6E3HA2_AMS509ES01_WQHD
+	depends on FB_MSM_MDSS_SAMSUNG
+	bool "LSI S6E3HA2 LDI"
+	default n
+	---help---
+	LSI S6E3HF2 LDI 1440_2560 HERO
+
+config PANEL_S6E3HA3_AMS567JA01_WQHD
+	depends on FB_MSM_MDSS_SAMSUNG
+	bool "LSI S6E3HA3 LDI"
+	default n
+	---help---
+	LSI S6E3HA3 LDI 1440_2560 HERO DSC TEST
+

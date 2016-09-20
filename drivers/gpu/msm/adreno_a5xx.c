@@ -245,8 +245,10 @@ static int a5xx_preemption_init(struct adreno_device *adreno_dev)
 	ret = kgsl_allocate_global(device, &adreno_dev->preemption_counters,
 		adreno_dev->num_ringbuffers *
 		A5XX_CP_CTXRECORD_PREEMPTION_COUNTER_SIZE, 0, 0);
-	if (ret)
+	if (ret) {
+		printk("kgsl %s %d result:%d from kgsl_allocate_global()\n", __func__, __LINE__, ret);
 		return ret;
+	}
 
 	addr = adreno_dev->preemption_counters.gpuaddr;
 
@@ -255,8 +257,10 @@ static int a5xx_preemption_init(struct adreno_device *adreno_dev)
 		ret = kgsl_allocate_global(&adreno_dev->dev,
 			&rb->preemption_desc, A5XX_CP_CTXRECORD_SIZE_IN_BYTES,
 			0, KGSL_MEMDESC_PRIVILEGED);
-		if (ret)
+		if (ret){
+			printk("kgsl %s %d result:%d from kgsl_allocate_global()\n", __func__, __LINE__, ret);
 			return ret;
+		}
 
 		/* Initialize the context switch record here */
 		kgsl_sharedmem_writel(rb->device, &rb->preemption_desc,
@@ -281,8 +285,12 @@ static int a5xx_preemption_init(struct adreno_device *adreno_dev)
 	}
 
 	/* Allocate mem for storing preemption smmu record */
-	return kgsl_allocate_global(device, &iommu->smmu_info, PAGE_SIZE,
-		KGSL_MEMFLAGS_GPUREADONLY, KGSL_MEMDESC_PRIVILEGED);
+	ret = kgsl_allocate_global(device, &iommu->smmu_info, PAGE_SIZE,
+			KGSL_MEMFLAGS_GPUREADONLY, KGSL_MEMDESC_PRIVILEGED);
+	if (ret) {
+		printk("kgsl %s %d result:%d from kgsl_allocate_global()\n", __func__, __LINE__, ret);
+	}
+	return ret;
 }
 
 /*
@@ -1594,6 +1602,8 @@ static int gpmu_set_level(struct kgsl_device *device, unsigned int val)
 
 	do {
 		kgsl_regread(device, A5XX_GPMU_GPMU_VOLTAGE, &reg);
+       if (reg & 0x80000000)
+			pr_err("GPMU pre powerlevel failed retrying... : %08x\n", val);
 	} while ((reg & 0x80000000) && retry--);
 
 	return (reg & 0x80000000) ? -ETIMEDOUT : 0;

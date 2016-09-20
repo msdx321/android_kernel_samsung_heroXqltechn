@@ -689,6 +689,9 @@ static int mdss_mdp_wb_wait4comp(struct mdss_mdp_ctl *ctl, void *arg)
 			rc = -ENODEV;
 			WARN(1, "writeback kickoff timed out (%d) ctl=%d\n",
 							rc, ctl->num);
+			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl", "dsi0_phy",
+				"dsi1_ctrl", "dsi1_phy", "vbif", "vbif_nrt",
+				"dbg_bus", "vbif_dbg_bus", "panic");
 		}
 	} else {
 		rc = 0;
@@ -848,7 +851,9 @@ int mdss_mdp_writeback_start(struct mdss_mdp_ctl *ctl)
 
 	if (mdss_mdp_is_cdm_supported(ctl->mdata, ctl->intf_type,
 				mixer_type)) {
+		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
 		ctl->cdm = mdss_mdp_cdm_init(ctl, MDP_CDM_CDWN_OUTPUT_WB);
+		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
 		if (IS_ERR_OR_NULL(ctl->cdm)) {
 			pr_err("%s failed to init cdm\n", __func__);
 			return -EBUSY;

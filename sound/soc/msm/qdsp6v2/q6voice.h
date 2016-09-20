@@ -812,6 +812,36 @@ struct vss_icommon_cmd_set_ui_property_enable_t {
 	/* Reserved, set to 0. */
 };
 
+#ifdef CONFIG_SEC_VOC_SOLUTION
+#define VOICEPROC_MODULE_VENC        0x00010F07
+#define VOICE_PARAM_LOOPBACK_ENABLE  0x00010E18
+
+#define VOICE_VOICEMODE_MODULE	0x10001001
+#define VOICE_NBMODE_PARAM	0x10001023
+#define VOICE_SPKMODE_PARAM	0x10001025
+
+enum {
+	LOOPBACK_DISABLE = 0,
+	LOOPBACK_ENABLE,
+	LOOPBACK_NODELAY,
+	LOOPBACK_MAX,
+};
+
+struct vss_icommon_cmd_set_loopback_enable_t {
+	uint32_t module_id;
+	/* Unique ID of the module. */
+	uint32_t param_id;
+	/* Unique ID of the parameter. */
+	uint16_t param_size;
+	/* Size of the parameter in bytes: MOD_ENABLE_PARAM_LEN */
+	uint16_t reserved;
+	/* Reserved; set to 0. */
+	uint16_t loopback_enable;
+	uint16_t reserved_field;
+	/* Reserved, set to 0. */
+};
+#endif /* CONFIG_SEC_VOC_SOLUTION*/
+
 /*
  * Event sent by the stream to the client that enables Rx DTMF
  * detection whenever DTMF is detected in the Rx path.
@@ -941,6 +971,16 @@ struct cvs_dec_buffer_ready_cmd {
 struct cvs_enc_buffer_consumed_cmd {
 	struct apr_hdr hdr;
 } __packed;
+
+#ifdef CONFIG_SEC_VOC_SOLUTION
+struct cvs_set_loopback_enable_cmd {
+	struct apr_hdr hdr;
+	uint32_t mem_handle;
+	uint64_t mem_address;
+	uint32_t mem_size;
+	struct vss_icommon_cmd_set_loopback_enable_t vss_set_loopback;
+} __packed;
+#endif /* CONFIG_SEC_VOC_SOLUTION */
 
 struct vss_istream_cmd_set_oob_packet_exchange_config_t {
 	struct apr_hdr hdr;
@@ -1412,6 +1452,18 @@ struct cvp_set_mute_cmd {
 	struct vss_ivolume_cmd_mute_v2_t cvp_set_mute;
 } __packed;
 
+#ifdef CONFIG_SEC_VOC_SOLUTION
+struct cvp_set_nbmode_enable_cmd {
+	struct apr_hdr hdr;
+	struct vss_icommon_cmd_set_ui_property_enable_t cvp_set_nbmode;
+} __packed;
+
+struct cvp_set_spkmode_enable_cmd {
+	struct apr_hdr hdr;
+	struct vss_icommon_cmd_set_ui_property_enable_t cvp_set_spkmode;
+} __packed;
+#endif /* CONFIG_SEC_VOC_SOLUTION */
+
 /* CB for up-link packets. */
 typedef void (*ul_cb_fn)(uint8_t *voc_pkt,
 			 uint32_t pkt_len,
@@ -1582,6 +1634,10 @@ struct voice_data {
 	struct voice_rec_route_state rec_route_state;
 
 	struct power_supply *psy;
+#ifdef CONFIG_SEC_VOC_SOLUTION
+	u32 cvp_nbmode_state;
+	u32 cvp_spkmode_state;
+#endif /* CONFIG_SEC_VOC_SOLUTION */
 };
 
 struct cal_mem {
@@ -1773,4 +1829,11 @@ uint32_t voice_get_topology(uint32_t topology_idx);
 int voc_set_sound_focus(struct sound_focus_param sound_focus_param);
 int voc_get_sound_focus(struct sound_focus_param *soundFocusData);
 int voc_get_source_tracking(struct source_tracking_param *sourceTrackingData);
+
+#ifdef CONFIG_SEC_VOC_SOLUTION
+int voice_sec_set_nbmode(short enable);
+int voice_sec_set_spkmode(short enable);
+int voc_get_loopback_enable(void);
+void voc_set_loopback_enable(int loopback_enable);
+#endif /* CONFIG_SEC_VOC_SOLUTION*/
 #endif

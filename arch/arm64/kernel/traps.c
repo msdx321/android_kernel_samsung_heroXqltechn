@@ -39,9 +39,19 @@
 #include <asm/system_misc.h>
 #include <asm/esr.h>
 #include <asm/edac.h>
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/qcom/sec_debug.h>
+#endif
+#ifdef CONFIG_SEC_DEBUG_SUMMARY
+#include <linux/qcom/sec_debug_summary.h>
+#endif
 
 #include <trace/events/exception.h>
 
+#ifdef CONFIG_RKP_CFP_ROPP
+#include <linux/rkp_cfp.h>
+#include <linux/rkp_entry.h>
+#endif
 static const char *handler[]= {
 	"Synchronous Abort",
 	"IRQ",
@@ -136,6 +146,9 @@ static void dump_instr(const char *lvl, struct pt_regs *regs)
 static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 {
 	struct stackframe frame;
+#ifdef CONFIG_RKP_CFP_ROPP
+	unsigned long init_pc = 0x0, rrk = 0x0;
+#endif
 
 	pr_debug("%s(regs = %p tsk = %p)\n", __func__, regs, tsk);
 
@@ -159,6 +172,15 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 		frame.pc = thread_saved_pc(tsk);
 	}
 
+#ifdef CONFIG_RKP_CFP_ROPP
+	init_pc = frame.pc;
+#ifdef CONFIG_RKP_CFP_ROPP_HYPKEY
+	rkp_call(CFP_ROPP_RET_KEY, (unsigned long) &(task_thread_info(tsk)->rrk), 0, 0, 0, 0);
+	asm("mov %0, x16" : "=r" (rrk));
+#else //CONFIG_RKP_CFP_ROPP_HYPKEY
+	rrk = task_thread_info(tsk)->rrk;
+#endif //CONFIG_RKP_CFP_ROPP_HYPKEY
+#endif //CONFIG_RKP_CFP_ROPP
 	pr_emerg("Call trace:\n");
 	while (1) {
 		unsigned long where = frame.pc;
@@ -167,6 +189,11 @@ static void dump_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 		ret = unwind_frame(&frame);
 		if (ret < 0)
 			break;
+#ifdef CONFIG_RKP_CFP_ROPP
+        if ((where != init_pc) && (0x1 == dump_stack_dec)){
+            where = where ^ rrk;
+        }
+#endif
 		dump_backtrace_entry(where, frame.sp);
 	}
 }
@@ -209,6 +236,17 @@ static int __die(const char *str, int err, struct thread_info *thread,
 		 TASK_COMM_LEN, tsk->comm, task_pid_nr(tsk), thread + 1);
 
 	if (!user_mode(regs) || in_interrupt()) {
+#ifdef CONFIG_SEC_DEBUG
+		if (THREAD_SIZE + (unsigned long)task_stack_page(tsk) - regs->sp
+			> THREAD_SIZE) {
+			dump_mem(KERN_EMERG, "Stack: ", regs->sp,
+					THREAD_SIZE/4 + regs->sp);
+		} else {
+			dump_mem(KERN_EMERG, "Stack: ", regs->sp,
+					THREAD_SIZE + (unsigned long)task_stack_page(tsk));
+		}
+#endif
+
 		dump_backtrace(regs, tsk);
 		dump_instr(KERN_EMERG, regs);
 	}
@@ -226,6 +264,9 @@ static unsigned long oops_begin(void)
 	unsigned long flags;
 
 	oops_enter();
+#ifdef CONFIG_SEC_DEBUG
+	secdbg_sched_msg("!!die!!");
+#endif
 
 	/* racy, but better than risking deadlock. */
 	raw_local_irq_save(flags);
@@ -280,6 +321,10 @@ void die(const char *str, struct pt_regs *regs, int err)
 		bug_type = report_bug(regs->pc, regs);
 	if (bug_type != BUG_TRAP_TYPE_NONE)
 		str = "Oops - BUG";
+
+#ifdef CONFIG_SEC_DEBUG_SUMMARY
+	sec_debug_save_die_info(str, regs);
+#endif
 
 	ret = __die(str, err, thread, regs);
 
@@ -391,7 +436,6 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 		unhandled_signal(current, SIGILL) && printk_ratelimit()) {
 		pr_info("%s[%d]: undefined instruction: pc=%p\n",
 			current->comm, task_pid_nr(current), pc);
-		dump_instr(KERN_INFO, regs);
 	}
 
 	info.si_signo = SIGILL;

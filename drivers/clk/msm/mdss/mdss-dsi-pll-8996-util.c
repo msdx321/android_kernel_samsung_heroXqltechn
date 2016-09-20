@@ -1,4 +1,4 @@
-/* Copyright (c) 2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2015-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -23,7 +23,7 @@
 #include "mdss-dsi-pll-8996.h"
 
 #define DSI_PLL_POLL_MAX_READS                  15
-#define DSI_PLL_POLL_TIMEOUT_US                 1000
+#define DSI_PLL_POLL_TIMEOUT_US                 10000
 #define MSM8996_DSI_PLL_REVISION_2		2
 
 #define CEIL(x, y)		(((x) + ((y)-1)) / (y))
@@ -175,6 +175,8 @@ int n2_div_get_div(struct div_clk *clk)
 	return n2div;
 }
 
+static u32 before_pll_start;
+
 static bool pll_is_pll_locked_8996(struct mdss_pll_resources *pll)
 {
 	u32 status;
@@ -210,6 +212,8 @@ static void dsi_pll_start_8996(void __iomem *pll_base)
 {
 	pr_debug("start PLL at base=%p\n", pll_base);
 
+	before_pll_start = MDSS_PLL_REG_R(pll_base, DSIPHY_PLL_RESETSM_CNTRL2);
+
 	MDSS_PLL_REG_W(pll_base, DSIPHY_PLL_VREF_CFG1, 0x10);
 	MDSS_PLL_REG_W(pll_base, DSIPHY_CMN_PLL_CNTRL, 1);
 }
@@ -219,6 +223,26 @@ static void dsi_pll_stop_8996(void __iomem *pll_base)
 	pr_debug("stop PLL at base=%p\n", pll_base);
 
 	MDSS_PLL_REG_W(pll_base, DSIPHY_CMN_PLL_CNTRL, 0);
+}
+
+static void dsi_pll_other_debug_info(void __iomem *pll_base)
+{
+	pr_err("Before PLL start-> DSIPHY_PLL_RESETSM_CNTRL2 = %x\n",
+		before_pll_start);
+
+}
+static void dsi_pll_dump_debugbus(void __iomem *pll_base)
+{
+	pr_err("debugbus register dump=%p\n", pll_base);
+
+	pr_err("DSIPHY_PLL_DEBUG_BUS2 = %x\n",
+		MDSS_PLL_REG_R(pll_base, DSIPHY_PLL_DEBUG_BUS2));
+	pr_err("DSIPHY_PLL_RESETSM_CNTRL = %x\n",
+		MDSS_PLL_REG_R(pll_base, DSIPHY_PLL_RESETSM_CNTRL));
+	pr_err("DSIPHY_PLL_DEBUG_BUS1 = %x\n",
+		MDSS_PLL_REG_R(pll_base, DSIPHY_PLL_DEBUG_BUS1));
+	pr_err("DSIPHY_PLL_DEBUG_BUS1 = %x\n",
+		MDSS_PLL_REG_R(pll_base, DSIPHY_PLL_DEBUG_BUS0));
 }
 
 int dsi_pll_enable_seq_8996(struct mdss_pll_resources *pll)
@@ -240,6 +264,15 @@ int dsi_pll_enable_seq_8996(struct mdss_pll_resources *pll)
 	if (!pll_is_pll_locked_8996(pll)) {
 		pr_err("DSI PLL ndx=%d lock failed\n", pll->index);
 		rc = -EINVAL;
+
+		/* dump debugBus registers */
+		dsi_pll_other_debug_info(pll->pll_base);
+		dsi_pll_dump_debugbus(pll->pll_base);
+		if (pll->slave) {
+			dsi_pll_other_debug_info(pll->slave->pll_base);
+			dsi_pll_dump_debugbus(pll->slave->pll_base);
+		}
+
 		goto init_lock_err;
 	}
 
@@ -331,7 +364,7 @@ static void mdss_dsi_pll_8996_input_init(struct mdss_pll_resources *pll,
 	pdb->in.pll_icpcset_m = 0;	/* 0, reg: 0x04f8, bit 3 - 5 */
 	pdb->in.pll_lpf_res1 = 3;	/* 3, reg: 0x0504, bit 0 - 3 */
 	pdb->in.pll_lpf_cap1 = 11;	/* 11, reg: 0x0500, bit 0 - 3 */
-	pdb->in.pll_lpf_cap2 = 14;	/* 14, reg: 0x0500, bit 4 - 7 */
+	pdb->in.pll_lpf_cap2 = 1;	/* 1, reg: 0x0500, bit 4 - 7 */
 	pdb->in.pll_iptat_trim = 7;
 	pdb->in.pll_c3ctrl = 2;		/* 2 */
 	pdb->in.pll_r3ctrl = 1;		/* 1 */
@@ -468,7 +501,7 @@ static void pll_8996_calc_vco_count(struct dsi_pll_db *pdb,
 	pout->pll_kvco_count = cnt;
 
 	pout->pll_misc1 = 16;
-	pout->pll_resetsm_cntrl = 0;
+	pout->pll_resetsm_cntrl = 48;
 	pout->pll_resetsm_cntrl2 = pin->bandgap_timer << 3;
 	pout->pll_resetsm_cntrl5 = pin->pll_wakeup_timer;
 	pout->pll_kvco_code = 0;
@@ -667,6 +700,10 @@ static void pll_db_commit_8996(struct mdss_pll_resources *pll,
 
 	if (pll->ssc_en)
 		pll_db_commit_ssc(pll, pdb);
+
+	/* Enable debug-bus */
+	data = 	MDSS_PLL_REG_R(pll->pll_base, DSIPHY_PLL_ATB_SEL2);
+	MDSS_PLL_REG_W(pll_base, DSIPHY_PLL_ATB_SEL2, data | 0xf0);
 
 	wmb();	/* make sure register committed */
 }

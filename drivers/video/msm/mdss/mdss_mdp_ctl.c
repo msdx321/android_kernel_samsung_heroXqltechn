@@ -786,6 +786,7 @@ int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 		(pipe->flags & MDP_SOLID_FILL)) {
 		perf->prefill_bytes = 0;
 		perf->bw_prefill = 0;
+		perf->bw_overlap = 0;
 		goto exit;
 	}
 
@@ -1987,6 +1988,8 @@ static void mdss_mdp_ctl_perf_update(struct mdss_mdp_ctl *ctl,
 			update_bus = 1;
 		}
 
+		MDSS_XLOG(is_bw_released,params_changed,old->mdp_clk_rate,new->mdp_clk_rate,old->bw_ctl/1000,new->bw_ctl/1000 );
+
 		/*
 		 * If traffic shaper is enabled, we do not decrease the clock,
 		 * otherwise we would increase traffic shaper latency. Clock
@@ -2026,6 +2029,8 @@ static void mdss_mdp_ctl_perf_update(struct mdss_mdp_ctl *ctl,
 		mdss_mdp_set_clk_rate(clk_rate);
 		pr_debug("update clk rate = %d HZ\n", clk_rate);
 	}
+
+	MDSS_XLOG(update_clk,update_bus);
 
 end:
 	mutex_unlock(&mdss_mdp_ctl_lock);
@@ -2326,17 +2331,26 @@ int mdss_mdp_block_mixer_destroy(struct mdss_mdp_mixer *mixer)
 	return 0;
 }
 
-int mdss_mdp_ctl_cmd_autorefresh_enable(struct mdss_mdp_ctl *ctl,
-		int frame_cnt)
+int mdss_mdp_ctl_cmd_set_autorefresh(struct mdss_mdp_ctl *ctl, int frame_cnt)
 {
 	int ret = 0;
+
 	if (ctl->panel_data->panel_info.type == MIPI_CMD_PANEL) {
 		ret = mdss_mdp_cmd_set_autorefresh_mode(ctl, frame_cnt);
 	} else {
 		pr_err("Mode not supported for this panel\n");
 		ret = -EINVAL;
 	}
+
 	return ret;
+}
+
+int mdss_mdp_ctl_cmd_get_autorefresh(struct mdss_mdp_ctl *ctl)
+{
+	if (ctl->panel_data->panel_info.type == MIPI_CMD_PANEL)
+		return mdss_mdp_cmd_get_autorefresh_mode(ctl);
+	else
+		return 0;
 }
 
 int mdss_mdp_ctl_splash_finish(struct mdss_mdp_ctl *ctl, bool handoff)
@@ -2564,6 +2578,7 @@ static void mdss_mdp_ctl_dsc_config_thresh(struct mdss_mdp_mixer *mixer,
 	}
 }
 
+/* called for each ctl */
 void mdss_mdp_ctl_dsc_setup(struct mdss_mdp_ctl *ctl,
 	struct mdss_panel_info *pinfo)
 {
@@ -3302,12 +3317,22 @@ static void mdss_mdp_ctl_restore_sub(struct mdss_mdp_ctl *ctl)
 {
 	u32 temp;
 	int ret = 0;
+	uint32_t nrt_vbif_client_sel;
+	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
+
+	nrt_vbif_client_sel = readl_relaxed(mdata->mdp_base +
+				MMSS_MDP_RT_NRT_VBIF_CLIENT_SEL);
+	MDSS_XLOG(ctl->num, ctl->play_cnt, nrt_vbif_client_sel, 0x111);
 
 	temp = readl_relaxed(ctl->mdata->mdp_base +
 			MDSS_MDP_REG_DISP_INTF_SEL);
 	temp |= (ctl->intf_type << ((ctl->intf_num - MDSS_MDP_INTF0) * 8));
 	writel_relaxed(temp, ctl->mdata->mdp_base +
 			MDSS_MDP_REG_DISP_INTF_SEL);
+
+	nrt_vbif_client_sel = readl_relaxed(mdata->mdp_base +
+				MMSS_MDP_RT_NRT_VBIF_CLIENT_SEL);
+	MDSS_XLOG(ctl->num, ctl->play_cnt, nrt_vbif_client_sel, 0x222);
 
 	if (ctl->mfd && ctl->panel_data) {
 		mdss_mdp_pp_resume(ctl->mfd);
@@ -3349,6 +3374,7 @@ void mdss_mdp_ctl_restore(bool locked)
 
 	for (cnum = MDSS_MDP_CTL0; cnum < mdata->nctl; cnum++) {
 		ctl = mdata->ctl_off + cnum;
+		MDSS_XLOG(ctl->num, 0x111);
 		if (!mdss_mdp_ctl_is_power_on(ctl))
 			continue;
 
@@ -3671,9 +3697,11 @@ static void mdss_mdp_set_mixer_roi(struct mdss_mdp_mixer *mixer,
 		mixer->roi_changed = true;
 	}
 
-	pr_debug("mixer%d ROI %s: [%d, %d, %d, %d]\n",
-		mixer->num, mixer->roi_changed ? "changed" : "not changed",
-		mixer->roi.x, mixer->roi.y, mixer->roi.w, mixer->roi.h);
+	if (mixer->roi_changed)
+		pr_debug("mixer%d ROI %s: [%d, %d, %d, %d]\n",
+			mixer->num, mixer->roi_changed ? "changed" : "not changed",
+			mixer->roi.x, mixer->roi.y, mixer->roi.w, mixer->roi.h);
+
 	MDSS_XLOG(mixer->num, mixer->roi_changed, mixer->valid_roi,
 		mixer->roi.x, mixer->roi.y, mixer->roi.w, mixer->roi.h);
 }
@@ -3683,6 +3711,9 @@ void mdss_mdp_set_roi(struct mdss_mdp_ctl *ctl,
 	struct mdss_rect *l_roi, struct mdss_rect *r_roi)
 {
 	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
+	bool mixer_changed;
+	ctl->mixer_cfg_changed = 0;
+	mixer_changed = mdss_mdp_is_both_lm_valid(ctl);
 
 	/* Reset ROI when we have (1) invalid ROI (2) feature disabled */
 	if ((!l_roi->w && l_roi->h) || (l_roi->w && !l_roi->h) ||
@@ -3738,6 +3769,8 @@ void mdss_mdp_set_roi(struct mdss_mdp_ctl *ctl,
 	 * Fix this by identifying this condition and forcing roi changed for
 	 * right LM.
 	 */
+	if(mixer_changed!=mdss_mdp_is_both_lm_valid(ctl))
+		ctl->mixer_cfg_changed = 1;
 	if (is_split_lm(ctl->mfd) && mdata->has_src_split &&
 	    (!ctl->mixer_left->valid_roi && ctl->mixer_left->roi_changed) &&
 	    (ctl->mixer_right->valid_roi && !ctl->mixer_right->roi_changed))

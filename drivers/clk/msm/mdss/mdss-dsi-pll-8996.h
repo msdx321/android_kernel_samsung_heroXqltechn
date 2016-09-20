@@ -30,6 +30,8 @@
 
 #define DSIPHY_PLL_CLKBUFLR_EN		0x041c
 
+#define DSIPHY_PLL_ATB_SEL1		0x0420
+#define DSIPHY_PLL_ATB_SEL2		0x0424
 #define DSIPHY_PLL_SYSCLK_EN_RESET	0x0428
 #define DSIPHY_PLL_RESETSM_CNTRL	0x042c
 #define DSIPHY_PLL_RESETSM_CNTRL2	0x0430
@@ -67,6 +69,10 @@
 #define DSIPHY_PLL_PLL_CRCTRL		0x04c4
 
 #define DSIPHY_PLL_RESET_SM_READY_STATUS 0x04cc
+
+#define DSIPHY_PLL_DEBUG_BUS0		0x04d8
+#define DSIPHY_PLL_DEBUG_BUS1		0x04dc
+#define DSIPHY_PLL_DEBUG_BUS2		0x04e0
 
 #define DSIPHY_PLL_PLL_MISC1		0x04e8
 
@@ -114,7 +120,7 @@ struct dsi_pll_input {
 
 	u32 pll_lpf_res1;	/* 3, reg: 0x0504, bit 0 - 3 */
 	u32 pll_lpf_cap1;	/* 11, reg: 0x0500, bit 0 - 3 */
-	u32 pll_lpf_cap2;	/* 14, reg: 0x0500, bit 4 - 7 */
+	u32 pll_lpf_cap2;	/* 1, reg: 0x0500, bit 4 - 7 */
 	u32 pll_c3ctrl;		/* 2, reg: 0x04c4 */
 	u32 pll_r3ctrl;		/* 1, reg: 0x04c4 */
 };

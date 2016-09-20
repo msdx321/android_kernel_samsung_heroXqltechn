@@ -1756,10 +1756,8 @@ static int pp_igc_set_config(char __iomem *base_addr,
 	}
 
 	lut_cfg_data = (struct mdp_igc_lut_data *) cfg_data;
-	if (lut_cfg_data->version != mdp_igc_v1_7 ||
-	    !lut_cfg_data->cfg_payload) {
-		pr_err("invalid igc version %d payload %p\n",
-		       lut_cfg_data->version, lut_cfg_data->cfg_payload);
+	if (lut_cfg_data->version != mdp_igc_v1_7) {
+		pr_err("invalid igc version %d\n", lut_cfg_data->version);
 		return -EINVAL;
 	}
 	if (!(lut_cfg_data->ops & ~(MDP_PP_OPS_READ))) {
@@ -1770,11 +1768,17 @@ static int pp_igc_set_config(char __iomem *base_addr,
 		pr_err("invalid mask value for IGC %d", lut_cfg_data->block);
 		return -EINVAL;
 	}
-	if (!(lut_cfg_data->ops & MDP_PP_OPS_WRITE)) {
-		pr_debug("non write ops set %d\n", lut_cfg_data->ops);
+
+	if (lut_cfg_data->ops & MDP_PP_OPS_DISABLE) {
+		pr_debug("disable igc\n");
 		goto bail_out;
 	}
+
 	lut_data = lut_cfg_data->cfg_payload;
+	if (!lut_data) {
+		pr_err("invalid igc payload %p\n", lut_data);
+		return -EINVAL;
+	}
 	if (lut_data->len != IGC_LUT_ENTRIES || !lut_data->c0_c1_data ||
 	    !lut_data->c2_data) {
 		pr_err("invalid lut len %d c0_c1_data %p  c2_data %p\n",

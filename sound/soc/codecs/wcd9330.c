@@ -84,10 +84,12 @@ enum {
 #define SLIM_BW_CLK_GEAR_9 6200000
 #define SLIM_BW_UNVOTE 0
 
+#if defined(CONFIG_SND_SOC_WCD_CPE)
 static int cpe_debug_mode;
 module_param(cpe_debug_mode, int,
 	     S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(cpe_debug_mode, "boot cpe in debug mode");
+#endif
 
 static atomic_t kp_tomtom_priv;
 
@@ -6265,6 +6267,7 @@ static int __tomtom_codec_enable_slimtx(struct snd_soc_codec *codec,
 	return ret;
 }
 
+#if defined(CONFIG_SND_SOC_WCD_CPE)
 /*
  * tomtom_codec_enable_slimtx_mad: Callback function that will be invoked
  *	to setup the slave port for MAD.
@@ -6288,6 +6291,7 @@ static int tomtom_codec_enable_slimtx_mad(struct snd_soc_codec *codec,
 		 __func__, event);
 	return __tomtom_codec_enable_slimtx(codec, dapm_event, dai);
 }
+#endif
 
 /*
  * tomtom_codec_enable_slimtx: DAPM widget allback for TX widgets
@@ -7739,7 +7743,9 @@ static int tomtom_device_down(struct wcd9xxx *wcd9xxx)
 
 	codec = (struct snd_soc_codec *)(wcd9xxx->ssr_priv);
 	priv = snd_soc_codec_get_drvdata(codec);
+#if defined(CONFIG_SND_SOC_WCD_CPE)
 	wcd_cpe_ssr_event(priv->cpe_core, WCD_CPE_BUS_DOWN_EVENT);
+#endif
 	snd_soc_card_change_online_state(codec->component.card, 0);
 	set_bit(BUS_DOWN, &priv->status_mask);
 
@@ -8307,7 +8313,9 @@ static int tomtom_post_reset_cb(struct wcd9xxx *wcd9xxx)
 
 	tomtom_init_slim_slave_cfg(codec);
 	tomtom_slim_interface_init_reg(codec);
+#if defined(CONFIG_SND_SOC_WCD_CPE)
 	wcd_cpe_ssr_event(tomtom->cpe_core, WCD_CPE_BUS_UP_EVENT);
+#endif
 	wcd9xxx_resmgr_post_ssr(&tomtom->resmgr);
 
 	if (tomtom->mbhc_started) {
@@ -8428,6 +8436,7 @@ static struct regulator *tomtom_codec_find_regulator(struct snd_soc_codec *cdc,
 	return NULL;
 }
 
+#if defined(CONFIG_SND_SOC_WCD_CPE)
 static struct wcd_cpe_core *tomtom_codec_get_cpe_core(
 		struct snd_soc_codec *codec)
 {
@@ -8510,11 +8519,13 @@ static int tomtom_codec_vote_max_bw(struct snd_soc_codec *codec,
 	return tomtom_codec_slim_reserve_bw(codec,
 			bw_ops, true);
 }
+#endif
 
 static const struct wcd9xxx_resmgr_cb resmgr_cb = {
 	.cdc_rco_ctrl = tomtom_codec_internal_rco_ctrl,
 };
 
+#if defined(CONFIG_SND_SOC_WCD_CPE)
 static int tomtom_cpe_err_irq_control(struct snd_soc_codec *codec,
 	enum cpe_err_irq_cntl_type cntl_type, u8 *status)
 {
@@ -8596,6 +8607,7 @@ static int tomtom_cpe_initialize(struct snd_soc_codec *codec)
 
 	return 0;
 }
+#endif
 
 static int tomtom_codec_probe(struct snd_soc_codec *codec)
 {
@@ -8780,6 +8792,7 @@ static int tomtom_codec_probe(struct snd_soc_codec *codec)
 	snd_soc_dapm_sync(dapm);
 
 	codec->component.ignore_pmdown_time = 1;
+#if defined(CONFIG_SND_SOC_WCD_CPE)
 	ret = tomtom_cpe_initialize(codec);
 	if (ret) {
 		dev_info(codec->dev,
@@ -8788,6 +8801,7 @@ static int tomtom_codec_probe(struct snd_soc_codec *codec)
 		/* Do not fail probe if CPE failed */
 		ret = 0;
 	}
+#endif
 	return ret;
 
 err_pdata:

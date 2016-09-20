@@ -97,6 +97,14 @@ enum msm_vfe_frame_skip_pattern {
  */
 #define MSM_VFE_STREAM_STOP_PERIOD 15
 
+/*
+ * Define an unused period. When this period is set it means that the stream is
+ * stopped(i.e the pattern is 0). We don't track the current pattern, just the
+ * period defines what the pattern is, if period is this then pattern is 0 else
+ * pattern is 1
+ */
+#define MSM_VFE_STREAM_STOP_PERIOD 15
+
 enum msm_isp_stats_type {
 	MSM_ISP_STATS_AEC,   /* legacy based AEC */
 	MSM_ISP_STATS_AF,    /* legacy based AF */
@@ -545,6 +553,19 @@ struct msm_vfe_axi_src_state {
 	uint32_t src_frame_id;
 };
 
+enum msm_vfe_ahb_clk_vote {
+	MSM_ISP_CAMERA_AHB_SVS_VOTE = 1,
+	MSM_ISP_CAMERA_AHB_TURBO_VOTE = 2,
+	MSM_ISP_CAMERA_AHB_NOMINAL_VOTE = 3,
+	MSM_ISP_CAMERA_AHB_SUSPEND_VOTE = 4,
+};
+
+struct msm_isp_ahb_clk_cfg {
+	enum msm_vfe_ahb_clk_vote vote;
+	uint32_t reserved[2];
+};
+
+
 enum msm_isp_event_mask_index {
 	ISP_EVENT_MASK_INDEX_STATS_NOTIFY		= 0,
 	ISP_EVENT_MASK_INDEX_ERROR			= 1,
@@ -555,7 +576,10 @@ enum msm_isp_event_mask_index {
 	ISP_EVENT_MASK_INDEX_BUF_DIVERT			= 6,
 	ISP_EVENT_MASK_INDEX_COMP_STATS_NOTIFY		= 7,
 	ISP_EVENT_MASK_INDEX_MASK_FE_READ_DONE		= 8,
-	ISP_EVENT_MASK_INDEX_BUF_DONE			= 9
+	ISP_EVENT_MASK_INDEX_BUF_DONE			= 9,
+	ISP_EVENT_MASK_INDEX_REG_UPDATE_MISSING		= 10,
+	ISP_EVENT_MASK_INDEX_PING_PONG_MISMATCH		= 11,
+	ISP_EVENT_MASK_INDEX_BUF_FATAL_ERROR		= 12,
 };
 
 
@@ -590,6 +614,15 @@ enum msm_isp_event_mask_index {
 
 #define ISP_EVENT_SUBS_MASK_BUF_DONE \
 			(1 << ISP_EVENT_MASK_INDEX_BUF_DONE)
+
+#define ISP_EVENT_SUBS_MASK_REG_UPDATE_MISSING \
+			(1 << ISP_EVENT_MASK_INDEX_REG_UPDATE_MISSING)
+
+#define ISP_EVENT_SUBS_MASK_PING_PONG_MISMATCH \
+			(1 << ISP_EVENT_MASK_INDEX_PING_PONG_MISMATCH)
+
+#define ISP_EVENT_SUBS_MASK_BUF_FATAL_ERROR \
+			(1 << ISP_EVENT_MASK_INDEX_BUF_FATAL_ERROR)
 
 enum msm_isp_event_idx {
 	ISP_REG_UPDATE        = 0,
@@ -857,6 +890,8 @@ struct msm_isp_event_data32 {
 #define VIDIOC_MSM_ISP_SET_DUAL_HW_MASTER_SLAVE \
 	_IOWR('V', BASE_VIDIOC_PRIVATE+22, struct msm_isp_set_dual_hw_ms_cmd)
 
+#define VIDIOC_MSM_ISP_AHB_CLK_CFG \
+	_IOWR('V', BASE_VIDIOC_PRIVATE+23, struct msm_isp_ahb_clk_cfg)
 
 #define VIDIOC_MSM_ISP_MAP_BUF_START_FE \
 	_IOWR('V', BASE_VIDIOC_PRIVATE+21, struct msm_vfe_fetch_eng_start)

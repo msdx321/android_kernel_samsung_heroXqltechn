@@ -327,6 +327,56 @@ static struct vb2_mem_ops msm_fd_vb2_mem_ops = {
 };
 
 /*
+ * msm_fd_vbif_error_handler - FD VBIF Error handler
+ * @handle: FD Device handle
+ * @error: CPP-VBIF Error code
+ */
+static int msm_fd_vbif_error_handler(void *handle, uint32_t error)
+{
+	struct msm_fd_device *fd;
+	struct msm_fd_buffer *active_buf;
+	int ret;
+
+	fd = (struct msm_fd_device *)handle;
+
+	if (error == CPP_VBIF_ERROR_HANG) {
+		dev_err(fd->dev, "Handling FD VBIF Hang\n");
+
+		if (fd->state != MSM_FD_DEVICE_RUNNING) {
+			dev_err(fd->dev, "FD current state %d is not"
+				"FD_DEVICE_RUNNING - Return\n", fd->state);
+			return 0;
+		}
+
+		/* Halt and reset */
+		msm_fd_hw_halt(fd);
+
+		/* Get active buffer */
+		active_buf = msm_fd_hw_get_active_buffer(fd);
+
+		if (active_buf == NULL) {
+			dev_err(fd->dev, "no active buffer, return\n");
+			return 0;
+		}
+
+		dev_err(fd->dev, "Active Buffer present.. Start re-schedule\n");
+		
+		/*Queue the buffer again*/
+		msm_fd_hw_add_buffer(fd, active_buf);
+
+		/*Schedule and restart*/
+		ret = msm_fd_hw_schedule_next_buffer(fd);
+		if (ret) {
+			dev_err(fd->dev, "Cannot reschedule buffer,"
+				"VBIF reset failed");
+			return ret;
+		}
+		dev_err(fd->dev, "Restarted FD after VBIF HAng\n");
+	}
+	return 0;
+}
+
+/*
  * msm_fd_open - Fd device open method.
  * @file: Pointer to file struct.
  */
@@ -388,6 +438,10 @@ static int msm_fd_open(struct file *file)
 		return ret;
 	}
 
+	/*Register with CPP VBIF error handler*/
+	msm_cpp_vbif_register_error_handler((void *)ctx->fd_device,
+		VBIF_CLIENT_FD, msm_fd_vbif_error_handler);
+
 	return 0;
 
 error_stats_vmalloc:
@@ -406,6 +460,10 @@ error_vb2_queue_init:
 static int msm_fd_release(struct file *file)
 {
 	struct fd_ctx *ctx = msm_fd_ctx_from_fh(file->private_data);
+
+	/*Un-register with CPP VBIF error handler*/
+	msm_cpp_vbif_register_error_handler((void *)ctx->fd_device,
+		VBIF_CLIENT_FD, NULL);
 
 	vb2_queue_release(&ctx->vb2_q);
 

@@ -29,6 +29,10 @@
 #include "mdss_mdp_splash_logo.h"
 #include "mdss_smmu.h"
 
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG) && defined(CONFIG_SEC_DEBUG)
+#include <linux/qcom/sec_debug.h>
+#endif
+
 #define INVALID_PIPE_INDEX 0xFFFF
 #define MAX_FRAME_DONE_COUNT_WAIT 2
 
@@ -304,8 +308,23 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 		mdss_mdp_handoff_cleanup_pipes(mfd, MDSS_MDP_PIPE_TYPE_DMA);
 	}
 
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	mdss_res->handoff_pending = false;
+#endif
+
 	mdss_mdp_ctl_splash_finish(ctl, mdp5_data->handoff);
 
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG) && defined(CONFIG_SEC_DEBUG)
+	if (!sec_debug_is_enabled()) {
+		if (mdp5_data->splash_mem_addr) {
+			/* Give back the reserved memory to the system */
+			memblock_free(mdp5_data->splash_mem_addr,
+						mdp5_data->splash_mem_size);
+			mdss_free_bootmem(mdp5_data->splash_mem_addr,
+						mdp5_data->splash_mem_size);
+		}
+	}
+#else
 	if (mdp5_data->splash_mem_addr &&
 		!mfd->splash_info.iommu_dynamic_attached) {
 		/* Give back the reserved memory to the system */
@@ -314,7 +333,7 @@ int mdss_mdp_splash_cleanup(struct msm_fb_data_type *mfd,
 		mdss_free_bootmem(mdp5_data->splash_mem_addr,
 					mdp5_data->splash_mem_size);
 	}
-
+#endif
 	mdss_mdp_footswitch_ctrl_splash(0);
 end:
 	return rc;

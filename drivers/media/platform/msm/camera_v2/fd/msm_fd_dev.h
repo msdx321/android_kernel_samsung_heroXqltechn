@@ -20,6 +20,7 @@
 #include <media/msm_fd.h>
 #include <linux/dma-buf.h>
 #include <linux/msm_ion.h>
+#include "msm_cpp.h"
 /* Maximum number of result buffers */
 #define MSM_FD_MAX_RESULT_BUFS 5
 /* Max number of clocks defined in device tree */
@@ -248,6 +249,7 @@ struct msm_fd_device {
 	struct workqueue_struct *work_queue;
 	struct work_struct work;
 	struct completion hw_halt_completion;
+	uint32_t clk_rate_idx;
 };
 
 #endif /* __MSM_FD_DEV_H__ */

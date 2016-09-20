@@ -107,4 +107,8 @@ struct msm_actuator_ctrl_t {
 	uint32_t max_code_size;
 };
 
+#if 1//defined(CONFIG_SAMSUNG_OIS)
+int16_t msm_actuator_move_for_ois_test(void);
+#endif
+
 #endif

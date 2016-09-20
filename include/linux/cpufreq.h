@@ -175,6 +175,19 @@ static inline unsigned int cpufreq_quick_get_max(unsigned int cpu)
 static inline void disable_cpufreq(void) { }
 #endif
 
+#if defined (CONFIG_CPU_FREQ_LIMIT_USERSPACE)
+enum {
+	DVFS_NO_ID			= 0,
+
+	/* need to update now */
+	DVFS_TOUCH_ID			= 0x00000001,
+	DVFS_FINGER_ID			= 0x00000002,
+
+	DVFS_MAX_ID
+};
+
+int set_freq_limit(unsigned long id, unsigned int freq);
+#endif
 /*********************************************************************
  *                      CPUFREQ DRIVER INTERFACE                     *
  *********************************************************************/
@@ -316,6 +329,23 @@ int cpufreq_unregister_driver(struct cpufreq_driver *driver_data);
 
 const char *cpufreq_get_current_driver(void);
 void *cpufreq_get_driver_data(void);
+
+#ifdef CONFIG_SEC_BSP
+
+#define MAX_NUM_PERIOD 3
+
+typedef struct {
+	bool on;
+	u32 freq[MAX_NUM_PERIOD][2];
+	int timeout[MAX_NUM_PERIOD];
+	u32 num_period;
+	u32 cur_period;
+	u32 stored_freq[2];
+	struct timer_list timer;
+	struct work_struct time_out_work;
+} cpufreq_boot_limit_t;
+
+#endif
 
 static inline void cpufreq_verify_within_limits(struct cpufreq_policy *policy,
 		unsigned int min, unsigned int max)

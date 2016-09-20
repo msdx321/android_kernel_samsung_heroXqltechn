@@ -66,9 +66,13 @@
 #include <scsi/scsi_dbg.h>
 #include <scsi/scsi_eh.h>
 
+#define COMMAND_PRIORITY
+#define HEAD_OF_Q_FEATURE
+
 #include <linux/fault-inject.h>
 #include "ufs.h"
 #include "ufshci.h"
+#include "ufs_quirks.h"
 
 #define UFSHCD "ufshcd"
 #define UFSHCD_DRIVER_VERSION "0.3"
@@ -76,6 +80,8 @@
 #define UFS_BIT(x)	BIT(x)
 
 struct ufs_hba;
+
+extern unsigned int system_rev;
 
 enum dev_cmd_type {
 	DEV_CMD_TYPE_NOP		= 0x0,
@@ -329,6 +335,7 @@ struct ufs_hba_variant_ops {
 	int	(*full_reset)(struct ufs_hba *);
 	void	(*dbg_register_dump)(struct ufs_hba *hba);
 	int	(*update_sec_cfg)(struct ufs_hba *hba, bool restore_sec_cfg);
+	void	(*dev_hw_reset)(struct ufs_hba *);
 #ifdef CONFIG_DEBUG_FS
 	void	(*add_debugfs)(struct ufs_hba *hba, struct dentry *root);
 	void	(*remove_debugfs)(struct ufs_hba *hba);
@@ -879,6 +886,21 @@ struct ufs_hba {
 	bool no_ref_clk_gating;
 
 	int scsi_block_reqs_cnt;
+#define UFS_PW_ON	0
+#define UFS_PW_OFF	1
+	int hw_reset_gpio;
+
+	/* bkops enable/disable */
+	struct device_attribute bkops_en_attr;
+
+ 	struct device_attribute unique_number_attr;
+ 	struct device_attribute manufacturer_id_attr;
+#if defined(CONFIG_SCSI_UFS_QCOM)
+	struct device_attribute hw_reset_info_attr;
+#endif
+	char unique_number[UFS_UN_MAX_DIGITS];
+ 	u16 manufacturer_id;
+	u8 lifetime;
 };
 
 /* Returns true if clocks can be gated. Otherwise false */
@@ -1033,6 +1055,11 @@ static inline int ufshcd_dme_peer_get(struct ufs_hba *hba,
 }
 
 int ufshcd_read_device_desc(struct ufs_hba *hba, u8 *buf, u32 size);
+int ufshcd_read_health_desc(struct ufs_hba *hba, u8 *buf, u32 size);
+#ifdef CONFIG_JOURNAL_DATA_TAG
+int ufshcd_read_vendor_specific_desc(struct ufs_hba *hba, enum desc_idn desc_id,
+		int desc_index, u8 *buf, u32 size);
+#endif
 
 static inline bool ufshcd_is_hs_mode(struct ufs_pa_layer_attr *pwr_info)
 {
@@ -1134,6 +1161,14 @@ static inline int ufshcd_vops_hce_enable_notify(struct ufs_hba *hba,
 		hba->var->vops->hce_enable_notify(hba, status);
 	return 0;
 }
+
+static inline void ufshcd_vops_dev_hw_reset(struct ufs_hba *hba)
+{
+	if (hba->var && hba->var->vops && hba->var->vops->dev_hw_reset)
+		hba->var->vops->dev_hw_reset(hba);
+	return;
+}
+
 static inline int ufshcd_vops_link_startup_notify(struct ufs_hba *hba,
 						bool status)
 {
@@ -1266,5 +1301,14 @@ static inline void ufshcd_vops_pm_qos_req_end(struct ufs_hba *hba,
 	if (hba->var && hba->var->pm_qos_vops && hba->var->pm_qos_vops->req_end)
 		hba->var->pm_qos_vops->req_end(hba, req, lock);
 }
+
+#define UFS_DEV_ATTR(name, fmt, args...)					\
+static ssize_t ufs_##name##_show (struct device *dev, struct device_attribute *attr, char *buf)	\
+{										\
+	struct Scsi_Host *host = container_of(dev, struct Scsi_Host, shost_dev);\
+	struct ufs_hba *hba = shost_priv(host);                                 \
+	return sprintf(buf, fmt, args);						\
+}										\
+static DEVICE_ATTR(name, S_IRUGO, ufs_##name##_show, NULL)
 
 #endif /* End of Header */

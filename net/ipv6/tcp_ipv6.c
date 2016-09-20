@@ -156,8 +156,13 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 
 	addr_type = ipv6_addr_type(&usin->sin6_addr);
 
-	if (addr_type & IPV6_ADDR_MULTICAST)
+	if (addr_type & IPV6_ADDR_MULTICAST) {
+		printk(KERN_DEBUG "tcp_v6_connect() addr_type is IPV6_ADDR_MULTICAST\n");
+		printk(KERN_DEBUG "tcp_v6_connect() s6_addr32 %08X %08X %08X %08X\n",
+		usin->sin6_addr.s6_addr32[0], usin->sin6_addr.s6_addr32[1],
+		usin->sin6_addr.s6_addr32[2], usin->sin6_addr.s6_addr32[3]);
 		return -ENETUNREACH;
+	}
 
 	if (addr_type&IPV6_ADDR_LINKLOCAL) {
 		if (addr_len >= sizeof(struct sockaddr_in6) &&
@@ -197,8 +202,13 @@ static int tcp_v6_connect(struct sock *sk, struct sockaddr *uaddr,
 
 		SOCK_DEBUG(sk, "connect: ipv4 mapped\n");
 
-		if (__ipv6_only_sock(sk))
+		if (__ipv6_only_sock(sk)) {
+		    printk(KERN_DEBUG "tcp_v6_connect() addr_type is IPV6_ADDR_MAPPED & __ipv6_only_sock\n");
+			printk(KERN_DEBUG "tcp_v6_connect() s6_addr32 %08X %08X %08X %08X\n",
+			usin->sin6_addr.s6_addr32[0], usin->sin6_addr.s6_addr32[1],
+			usin->sin6_addr.s6_addr32[2], usin->sin6_addr.s6_addr32[3]);
 			return -ENETUNREACH;
+		}
 
 		sin.sin_family = AF_INET;
 		sin.sin_port = usin->sin6_port;

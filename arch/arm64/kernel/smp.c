@@ -56,6 +56,10 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/ipi.h>
 
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/qcom/sec_debug.h>
+#endif
+
 /*
  * as from 2.5, kernels no longer have an init_tasks structure
  * so we need some other way of telling a new secondary core
@@ -586,6 +590,9 @@ static void ipi_cpu_stop(unsigned int cpu, struct pt_regs *regs)
 		show_regs(regs);
 		dump_stack();
 		arm64_check_cache_ecc(NULL);
+#ifdef CONFIG_SEC_DEBUG
+		sec_debug_save_context();
+#endif
 		raw_spin_unlock(&stop_lock);
 	}
 
@@ -593,6 +600,7 @@ static void ipi_cpu_stop(unsigned int cpu, struct pt_regs *regs)
 
 	flush_cache_all();
 	local_irq_disable();
+
 
 	while (1)
 		cpu_relax();

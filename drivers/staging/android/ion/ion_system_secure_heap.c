@@ -60,6 +60,9 @@ static void ion_system_secure_heap_free(struct ion_buffer *buffer)
 	if (ret) {
 		pr_err("%s: Not freeing memory since assign call failed\n",
 								__func__);
+		sgt = buffer->priv_virt;
+		for_each_sg(sgt->sgl, sg, sgt->nents, i)
+			pr_err("%s: with sg[%d] addr/size = 0x%p/0x%x\n", __func__, i, (void*)page_to_phys(sg_page(sg)), sg->length);
 		return;
 	}
 
@@ -115,6 +118,9 @@ static int ion_system_secure_heap_allocate(struct ion_heap *heap,
 					&dest_vmid, &dest_perms, 1);
 	if (ret) {
 		pr_err("%s: Assign call failed\n", __func__);
+		sgt = buffer->priv_virt;
+		for_each_sg(sgt->sgl, sg, sgt->nents, i)
+			pr_err("%s: with sg[%d] addr/size = 0x%p/0x%x\n", __func__, i, (void*)page_to_phys(sg_page(sg)), sg->length);
 		goto err;
 	}
 

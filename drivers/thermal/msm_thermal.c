@@ -48,7 +48,6 @@
 #include <linux/cpumask.h>
 #include <linux/suspend.h>
 #include <linux/uaccess.h>
-#include <linux/uio_driver.h>
 
 #define CREATE_TRACE_POINTS
 #define TRACE_MSM_THERMAL
@@ -73,7 +72,6 @@
 #define MSM_THERMAL_THRESH_UPDATE "update"
 #define DEVM_NAME_MAX 30
 #define HOTPLUG_RETRY_INTERVAL_MS 100
-#define UIO_VERSION "1.0"
 
 #define VALIDATE_AND_SET_MASK(_node, _key, _mask, _cpu) \
 	do { \
@@ -446,50 +444,6 @@ static ssize_t thermal_config_debugfs_write(struct file *file,
 		_flag = 0; \
 	} while (0)
 
-static void uio_init(struct platform_device *pdev)
-{
-	int ret = 0;
-	struct uio_info *uio_reg_info = NULL;
-	struct resource *clnt_res = NULL;
-	u32 mem_size = 0;
-	phys_addr_t mem_pyhsical = 0;
-
-	clnt_res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!clnt_res) {
-		pr_debug("resource not found\n");
-		goto exit;
-	}
-	mem_size = resource_size(clnt_res);
-	if (mem_size == 0) {
-		pr_err("resource memory size is zero\n");
-		goto exit;
-	}
-
-	uio_reg_info = devm_kzalloc(&pdev->dev, sizeof(struct uio_info),
-			GFP_KERNEL);
-	if (!uio_reg_info)
-		goto exit;
-
-	mem_pyhsical = clnt_res->start;
-
-	/* Setup device */
-	uio_reg_info->name = clnt_res->name;
-	uio_reg_info->version = UIO_VERSION;
-	uio_reg_info->mem[0].addr = mem_pyhsical;
-	uio_reg_info->mem[0].size = mem_size;
-	uio_reg_info->mem[0].memtype = UIO_MEM_PHYS;
-
-	ret = uio_register_device(&pdev->dev, uio_reg_info);
-	if (ret) {
-		devm_kfree(&pdev->dev, uio_reg_info);
-		pr_err("uio register failed ret=%d\n", ret);
-		goto exit;
-	}
-	dev_set_drvdata(&pdev->dev, uio_reg_info);
-
-exit:
-	return;
-}
 
 static void get_cluster_mask(uint32_t cpu, cpumask_t *mask)
 {
@@ -1419,8 +1373,8 @@ static int get_cpu_freq_plan(int cpu,
 
 	rcu_read_lock();
 	while (!IS_ERR(opp = dev_pm_opp_find_freq_ceil(cpu_dev, &freq))) {
-		/* Convert from Hz to kHz */
-		freq_table_ptr[table_len].frequency = freq / 1000;
+		/* Convert from Hz to kHz */ 
+		freq_table_ptr[table_len].frequency = freq / 1000; 
 		pr_debug("cpu%d freq %d :%d\n", cpu, table_len,
 			freq_table_ptr[table_len].frequency);
 		freq++;
@@ -2271,12 +2225,6 @@ static int zone_id_to_tsen_id(int zone_id, int *tsens_id)
 {
 	int i = 0;
 	int ret = 0;
-
-	if (!zone_id_tsens_map) {
-		pr_debug("zone_id_tsens_map is not initialized.\n");
-		*tsens_id = zone_id;
-		return ret;
-	}
 
 	for (i = 0; i < max_tsens_num; i++) {
 		if (zone_id == zone_id_tsens_map[i]) {
@@ -4941,6 +4889,9 @@ int msm_thermal_pre_init(struct device *dev)
 		goto pre_init_exit;
 	}
 
+	if (!tsens_temp_at_panic)
+		msm_thermal_panic_notifier_init(dev);
+
 	if (!thresh) {
 		thresh = kzalloc(
 				sizeof(struct threshold_info) * MSM_LIST_MAX_NR,
@@ -5097,7 +5048,6 @@ int msm_thermal_init(struct msm_thermal_data *pdata)
 		cpus_previously_online_update();
 		register_cpu_notifier(&msm_thermal_cpu_notifier);
 	}
-	msm_thermal_panic_notifier_init(&pdata->pdev->dev);
 
 	return ret;
 }
@@ -7039,10 +6989,8 @@ static int msm_thermal_dev_exit(struct platform_device *inp_dev)
 	int i = 0;
 	uint32_t _cluster = 0;
 	struct cluster_info *cluster_ptr = NULL;
-	struct uio_info *info = dev_get_drvdata(&inp_dev->dev);
 	struct rail *r = NULL;
 
-	uio_unregister_device(info);
 	unregister_reboot_notifier(&msm_thermal_reboot_notifier);
 	if (msm_therm_debugfs && msm_therm_debugfs->parent)
 		debugfs_remove_recursive(msm_therm_debugfs->parent);
@@ -7163,8 +7111,6 @@ int __init msm_thermal_late_init(void)
 	create_cpu_topology_sysfs();
 	create_thermal_debugfs();
 	msm_thermal_add_bucket_info_nodes();
-	uio_init(msm_thermal_info.pdev);
-
 	return 0;
 }
 late_initcall(msm_thermal_late_init);

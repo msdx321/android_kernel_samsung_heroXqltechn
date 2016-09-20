@@ -273,8 +273,13 @@ static int scsi_runtime_suspend(struct device *dev)
 	int err = 0;
 
 	dev_dbg(dev, "scsi_runtime_suspend\n");
-	if (scsi_is_sdev_device(dev))
+	if (scsi_is_sdev_device(dev)) {
+		/* runtime PM has no effect on UFS */
+		struct scsi_device *sdev = to_scsi_device(dev);
+		if (sdev->host->by_ufs)
+			return err;
 		err = sdev_runtime_suspend(dev);
+	}
 
 	/* Insert hooks here for targets, hosts, and transport classes */
 
@@ -303,8 +308,13 @@ static int scsi_runtime_resume(struct device *dev)
 	int err = 0;
 
 	dev_dbg(dev, "scsi_runtime_resume\n");
-	if (scsi_is_sdev_device(dev))
+	if (scsi_is_sdev_device(dev)) {
+		/* runtime PM has no effect on UFS */
+		struct scsi_device *sdev = to_scsi_device(dev);
+		if (sdev->host->by_ufs)
+			return err;
 		err = sdev_runtime_resume(dev);
+	}
 
 	/* Insert hooks here for targets, hosts, and transport classes */
 
@@ -318,6 +328,10 @@ static int scsi_runtime_idle(struct device *dev)
 	/* Insert hooks here for targets, hosts, and transport classes */
 
 	if (scsi_is_sdev_device(dev)) {
+		/* runtime PM has no effect on UFS */
+		struct scsi_device *sdev = to_scsi_device(dev);
+		if (sdev->host->by_ufs)
+			return 0;
 		pm_runtime_mark_last_busy(dev);
 		pm_runtime_autosuspend(dev);
 		return -EBUSY;

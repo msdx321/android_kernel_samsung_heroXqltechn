@@ -3946,7 +3946,7 @@ static void gro_list_prepare(struct napi_struct *napi, struct sk_buff *skb)
 	unsigned int maclen = skb->dev->hard_header_len;
 	u32 hash = skb_get_hash_raw(skb);
 
-	for (p = napi->gro_list; p; p = p->next) {
+	for (p = napi->gro_list; p && napi->gro_count > 0; p = p->next) {
 		unsigned long diffs;
 
 		NAPI_GRO_CB(p)->flush = 0;
@@ -4064,7 +4064,7 @@ static enum gro_result dev_gro_receive(struct napi_struct *napi, struct sk_buff 
 	same_flow = NAPI_GRO_CB(skb)->same_flow;
 	ret = NAPI_GRO_CB(skb)->free ? GRO_MERGED_FREE : GRO_MERGED;
 
-	if (pp) {
+	if (pp && *pp) {
 		struct sk_buff *nskb = *pp;
 
 		*pp = nskb->next;

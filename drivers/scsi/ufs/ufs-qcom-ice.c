@@ -249,7 +249,7 @@ int ufs_qcom_ice_cfg(struct ufs_qcom_host *qcom_host, struct scsi_cmnd *cmd)
 		lba = req->bio->bi_iter.bi_sector;
 
 	slot = req->tag;
-	if (slot < 0 || slot > qcom_host->hba->nutrs) {
+	if (slot > qcom_host->hba->nutrs) {
 		dev_err(dev, "%s: slot (%d) is out of boundaries (0...%d)\n",
 			__func__, slot, qcom_host->hba->nutrs);
 		return -EINVAL;

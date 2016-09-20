@@ -125,10 +125,12 @@ static void _kgsl_cmdbatch_timer(unsigned long data)
 			break;
 		case KGSL_CMD_SYNCPOINT_TYPE_FENCE:
 			if (event->handle != NULL) {
-				dev_err(device->dev, "       [%d] FENCE %s\n",
-				i, event->handle->fence ?
-					event->handle->fence->name : "NULL");
-				kgsl_sync_fence_log(event->handle->fence);
+				if (event->handle->fence) {
+					dev_err(device->dev, "       [%d] FENCE %s\n",
+							i, event->handle->fence ?
+							event->handle->fence->name : "NULL");
+					kgsl_sync_fence_log(event->handle->fence);
+				}
 			}
 			break;
 		}

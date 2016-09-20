@@ -511,7 +511,11 @@ static inline void config_sctlr_el1(u32 clear, u32 set)
 	asm volatile("mrs %0, sctlr_el1" : "=r" (val));
 	val &= ~clear;
 	val |= set;
+#ifdef CONFIG_TIMA_RKP
+	rkp_call(RKP_EMULT_SCTLR, (unsigned long)val, 0, 0, 0, 0);
+#else
 	asm volatile("msr sctlr_el1, %0" : : "r" (val));
+#endif
 }
 
 static int cp15_barrier_set_hw_mode(bool enable)

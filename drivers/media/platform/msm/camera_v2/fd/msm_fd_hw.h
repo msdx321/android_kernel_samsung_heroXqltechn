@@ -79,4 +79,6 @@ int msm_fd_hw_schedule_and_start(struct msm_fd_device *fd);
 
 int msm_fd_hw_schedule_next_buffer(struct msm_fd_device *fd);
 
+void msm_fd_hw_halt(struct msm_fd_device *fd);
+
 #endif /* __MSM_FD_HW_H__ */

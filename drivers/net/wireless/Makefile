@@ -55,14 +55,18 @@ obj-$(CONFIG_WL_TI)	+= ti/
 
 obj-$(CONFIG_MWIFIEX)	+= mwifiex/
 
+obj-$(CONFIG_BCM4359)  += bcmdhd4359/
+obj-$(CONFIG_ARCH_MSM) += bcmdhd4359/dhd_custom_memprealloc.o
+obj-$(CONFIG_ARCH_MSM) += bcmdhd4359/dhd_custom_msm.o
+
 obj-$(CONFIG_BRCMFMAC)	+= brcm80211/
 obj-$(CONFIG_BRCMSMAC)	+= brcm80211/
 
 obj-$(CONFIG_CW1200)	+= cw1200/
 obj-$(CONFIG_RSI_91X)	+= rsi/
 
-obj-$(CONFIG_WCNSS_CORE)	+= wcnss/
+#obj-$(CONFIG_WCNSS_CORE)	+= wcnss/
 
-obj-$(CONFIG_CNSS_SDIO)		+= cnss/cnss_sdio.o
-obj-$(CONFIG_CNSS)		+= cnss/
-obj-$(CONFIG_WCNSS_MEM_PRE_ALLOC) += cnss_prealloc/
+#obj-$(CONFIG_CNSS_SDIO)	+= cnss/cnss_sdio.o
+#obj-$(CONFIG_CNSS)		+= cnss/
+#obj-$(CONFIG_WCNSS_MEM_PRE_ALLOC) += cnss_prealloc/

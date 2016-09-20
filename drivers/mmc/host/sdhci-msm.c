@@ -1620,6 +1620,15 @@ struct sdhci_msm_pltfm_data *sdhci_msm_populate_pdata(struct device *dev,
 	if (gpio_is_valid(pdata->status_gpio) & !(flags & OF_GPIO_ACTIVE_LOW))
 		pdata->caps2 |= MMC_CAP2_CD_ACTIVE_HIGH;
 
+	pdata->tflash_en_gpio = of_get_named_gpio(np, "sec,tflash-en-gpio", 0);
+	if (gpio_is_valid(pdata->tflash_en_gpio)) {
+		gpio_direction_output(pdata->tflash_en_gpio, 1);
+		dev_err(dev, "tflash is %sabled(%d).\n",
+				gpio_get_value(pdata->tflash_en_gpio) ? "en" : "dis",
+				pdata->tflash_en_gpio);
+	} else
+		dev_err(dev, "invalid tflash_en.\n");
+
 	of_property_read_u32(np, "qcom,bus-width", &bus_width);
 	if (bus_width == 8)
 		pdata->mmc_bus_width = MMC_CAP_8_BIT_DATA;
@@ -2128,9 +2137,10 @@ static int sdhci_msm_setup_vreg(struct sdhci_msm_pltfm_data *pdata,
 
 	for (i = 0; i < ARRAY_SIZE(vreg_table); i++) {
 		if (vreg_table[i]) {
-			if (enable)
+			if (enable) {
 				ret = sdhci_msm_vreg_enable(vreg_table[i]);
-			else
+				udelay(300);
+			} else
 				ret = sdhci_msm_vreg_disable(vreg_table[i]);
 			if (ret)
 				goto out;
@@ -2140,6 +2150,7 @@ out:
 	return ret;
 }
 
+#if !defined(CONFIG_SEC_HYBRID_TRAY)
 /*
  * Reset vreg by ensuring it is off during probe. A call
  * to enable vreg is needed to balance disable vreg
@@ -2154,6 +2165,7 @@ static int sdhci_msm_vreg_reset(struct sdhci_msm_pltfm_data *pdata)
 	ret = sdhci_msm_setup_vreg(pdata, 0, true);
 	return ret;
 }
+#endif
 
 /* This init function should be called only once for each SDHC slot */
 static int sdhci_msm_vreg_init(struct device *dev,
@@ -2189,9 +2201,12 @@ static int sdhci_msm_vreg_init(struct device *dev,
 		if (ret)
 			goto vdd_reg_deinit;
 	}
+#if !defined(CONFIG_SEC_HYBRID_TRAY)
+	/* in case of using the Hybrid tray, Do not vreg_reset */
 	ret = sdhci_msm_vreg_reset(pdata);
 	if (ret)
 		dev_err(dev, "vreg reset failed (%d)\n", ret);
+#endif
 	goto out;
 
 vdd_io_reg_deinit:
@@ -2953,6 +2968,7 @@ static void sdhci_msm_set_uhs_signaling(struct sdhci_host *host,
 
 #define MAX_TEST_BUS 60
 #define DRV_NAME "cmdq-host"
+#if 0
 static void sdhci_msm_cmdq_dump_debug_ram(struct sdhci_msm_host *msm_host)
 {
 	int i = 0;
@@ -2974,6 +2990,7 @@ static void sdhci_msm_cmdq_dump_debug_ram(struct sdhci_msm_host *msm_host)
 	}
 	pr_err("-------------------------\n");
 }
+#endif
 
 void sdhci_msm_dump_vendor_regs(struct sdhci_host *host)
 {
@@ -2986,9 +3003,10 @@ void sdhci_msm_dump_vendor_regs(struct sdhci_host *host)
 	u32 sts = 0;
 
 	pr_info("----------- VENDOR REGISTER DUMP -----------\n");
+#if 0
 	if (host->cq_host)
 		sdhci_msm_cmdq_dump_debug_ram(msm_host);
-
+#endif
 	pr_info("Data cnt: 0x%08x | Fifo cnt: 0x%08x | Int sts: 0x%08x\n",
 		readl_relaxed(msm_host->core_mem + CORE_MCI_DATA_CNT),
 		readl_relaxed(msm_host->core_mem + CORE_MCI_FIFO_CNT),
@@ -3783,6 +3801,51 @@ static bool sdhci_msm_is_bootdevice(struct device *dev)
 	return true;
 }
 
+/* SYSFS about SD Card Detection */
+extern struct class *sec_class;
+static struct device *t_flash_detect_dev;
+
+static ssize_t t_flash_detect_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct sdhci_msm_host *msm_host = dev_get_drvdata(dev);
+#if defined(CONFIG_NO_SD_DET_PIN) || defined(CONFIG_SEC_HYBRID_TRAY)
+	if (msm_host->mmc->card) {
+		printk(KERN_DEBUG "External sd: card inserted.\n");
+		return sprintf(buf, "Insert\n");
+	} else {
+		if (gpio_is_valid(msm_host->pdata->status_gpio) &&
+				gpio_get_value(msm_host->pdata->status_gpio)) {
+			printk(KERN_DEBUG "SD slot tray Removed.\n");
+			return sprintf(buf, "Notray\n");
+		}
+		printk(KERN_DEBUG "External sd: card removed.\n");
+		return sprintf(buf, "Remove\n");
+	}
+#else
+	unsigned int detect;
+
+	if (gpio_is_valid(msm_host->pdata->status_gpio))
+		detect = gpio_get_value(msm_host->pdata->status_gpio);
+
+	else {
+		pr_info("%s : External  SD detect pin Error\n", __func__);
+		return sprintf(buf, "Error\n");
+	}
+
+	pr_info("%s : detect = %d.\n", __func__, detect);
+	if (!detect) {
+		printk(KERN_DEBUG "External sd: card inserted.\n");
+		return sprintf(buf, "Insert\n");
+	} else {
+		printk(KERN_DEBUG "External sd: card removed.\n");
+		return sprintf(buf, "Remove\n");
+	}
+#endif
+}
+
+static DEVICE_ATTR(status, 0444, t_flash_detect_show, NULL);
+
 static int sdhci_msm_probe(struct platform_device *pdev)
 {
 	struct sdhci_host *host;
@@ -4096,17 +4159,16 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 	/* Set host capabilities */
 	msm_host->mmc->caps |= msm_host->pdata->mmc_bus_width;
 	msm_host->mmc->caps |= msm_host->pdata->caps;
-	msm_host->mmc->caps |= MMC_CAP_AGGRESSIVE_PM;
 	msm_host->mmc->caps |= MMC_CAP_WAIT_WHILE_BUSY;
 	msm_host->mmc->caps2 |= msm_host->pdata->caps2;
 	msm_host->mmc->caps2 |= MMC_CAP2_BOOTPART_NOACC;
-	msm_host->mmc->caps2 |= MMC_CAP2_FULL_PWR_CYCLE;
 	msm_host->mmc->caps2 |= MMC_CAP2_ASYNC_SDIO_IRQ_4BIT_MODE;
 	msm_host->mmc->caps2 |= MMC_CAP2_HS400_POST_TUNING;
-	msm_host->mmc->caps2 |= MMC_CAP2_CLK_SCALE;
-	msm_host->mmc->caps2 |= MMC_CAP2_SANITIZE;
 	msm_host->mmc->caps2 |= MMC_CAP2_MAX_DISCARD_SIZE;
 	msm_host->mmc->caps2 |= MMC_CAP2_SLEEP_AWAKE;
+#if defined(CONFIG_SEC_HYBRID_TRAY)
+	msm_host->mmc->caps2 |= MMC_CAP2_NO_PRESCAN_POWERUP;
+#endif
 
 	if (msm_host->pdata->nonremovable)
 		msm_host->mmc->caps |= MMC_CAP_NONREMOVABLE;
@@ -4152,6 +4214,26 @@ static int sdhci_msm_probe(struct platform_device *pdev)
 					__func__, ret);
 			goto vreg_deinit;
 		}
+	}
+
+#if defined(CONFIG_NO_SD_DET_PIN)
+	if (t_flash_detect_dev == NULL && !strcmp(host->hw_name, "74a4900.sdhci")) {
+#else
+	if (t_flash_detect_dev == NULL && gpio_is_valid(msm_host->pdata->status_gpio)) {
+#endif
+		printk(KERN_DEBUG "%s : Change sysfs Card Detect\n", __func__);
+
+		t_flash_detect_dev = device_create(sec_class,
+				NULL, 0, NULL, "sdcard");
+		if (IS_ERR(t_flash_detect_dev))
+			pr_err("%s : Failed to create device!\n", __func__);
+
+		if (device_create_file(t_flash_detect_dev,
+					&dev_attr_status) < 0)
+			pr_err("%s : Failed to create device file(%s)!\n",
+					__func__, dev_attr_status.attr.name);
+
+		dev_set_drvdata(t_flash_detect_dev, msm_host);
 	}
 
 	if ((sdhci_readl(host, SDHCI_CAPABILITIES) & SDHCI_CAN_64BIT) &&
@@ -4380,6 +4462,14 @@ static int sdhci_msm_resume(struct device *dev)
 	int ret = 0;
 	ktime_t start = ktime_get();
 
+	if (gpio_is_valid(msm_host->pdata->tflash_en_gpio)) {
+		if (!gpio_get_value(msm_host->pdata->tflash_en_gpio))
+			gpio_direction_output(msm_host->pdata->tflash_en_gpio, 1);
+		pr_err("tflash is %sabled(%d).\n",
+				gpio_get_value(msm_host->pdata->tflash_en_gpio) ? "en" : "dis",
+				msm_host->pdata->tflash_en_gpio);
+	}
+
 	if (gpio_is_valid(msm_host->pdata->status_gpio) &&
 		(msm_host->mmc->slot.cd_irq >= 0))
 			enable_irq(msm_host->mmc->slot.cd_irq);
@@ -4403,6 +4493,30 @@ static const struct dev_pm_ops sdhci_msm_pmops = {
 			   NULL)
 };
 
+
+static void sdhci_msm_shutdown(struct platform_device *pdev)
+{
+	struct sdhci_host *host = platform_get_drvdata(pdev);
+	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+	struct sdhci_msm_host *msm_host = pltfm_host->priv;
+	struct sdhci_msm_pltfm_data *pdata = msm_host->pdata;
+	int ret;
+
+	ret = sdhci_msm_setup_vreg(msm_host->pdata, false, false);
+	if (ret)
+		pr_err("%s: failed to shutdown the vregs.\n", mmc_hostname(host->mmc));
+
+	mdelay(2);
+
+	if (gpio_is_valid(pdata->tflash_en_gpio)) {
+		gpio_direction_output(pdata->tflash_en_gpio, 0);
+		pr_err("tflash is %sabled(%d).\n",
+				gpio_get_value(pdata->tflash_en_gpio) ? "en" : "dis",
+				pdata->tflash_en_gpio);
+	}
+
+	return;
+}
 #define SDHCI_MSM_PMOPS (&sdhci_msm_pmops)
 
 #else
@@ -4423,6 +4537,9 @@ static struct platform_driver sdhci_msm_driver = {
 		.of_match_table = sdhci_msm_dt_match,
 		.pm	= SDHCI_MSM_PMOPS,
 	},
+#ifdef CONFIG_PM
+	.shutdown	= sdhci_msm_shutdown,
+#endif
 };
 
 module_platform_driver(sdhci_msm_driver);

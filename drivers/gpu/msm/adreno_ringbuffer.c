@@ -615,6 +615,13 @@ adreno_ringbuffer_addcmds(struct adreno_ringbuffer *rb,
 	if (flags & KGSL_CMD_FLAGS_PWRON_FIXUP)
 		total_sizedwords += 9;
 
+	if (sizedwords >= KGSL_RB_DWORDS || total_sizedwords >= KGSL_RB_DWORDS || total_sizedwords > (sizedwords + 200)) {
+		unsigned int passed_size = sizedwords;
+		unsigned int updated_size = total_sizedwords ;
+		printk("adreno_ringbuffer_addcmds: sizedwords %d, total_sizedwords %d\n", passed_size, updated_size);
+		BUG();
+	}
+
 	ringcmds = adreno_ringbuffer_allocspace(rb, total_sizedwords);
 	if (IS_ERR(ringcmds))
 		return PTR_ERR(ringcmds);

@@ -15,6 +15,7 @@
 #define pr_fmt(fmt) "QSEECOM: %s: " fmt, __func__
 
 #include <linux/kernel.h>
+#include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/fs.h>
@@ -50,6 +51,10 @@
 #ifdef CONFIG_COMPAT
 #include <linux/compat.h>
 #include <linux/compat_qseecom.h>
+#endif
+
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/qcom/sec_debug.h>
 #endif
 
 #define QSEECOM_DEV			"qseecom"
@@ -583,6 +588,13 @@ static int qseecom_scm_call2(uint32_t svc_id, uint32_t tz_cmd_id,
 		case QSEOS_RPMB_ERASE_COMMAND: {
 			smc_id = TZ_OS_RPMB_ERASE_ID;
 			desc.arginfo = TZ_OS_RPMB_ERASE_ID_PARAM_ID;
+			__qseecom_reentrancy_check_if_no_app_blocked(smc_id);
+			ret = scm_call2(smc_id, &desc);
+			break;
+		}
+		case QSEOS_RPMB_CHECK_PROV_STATUS_COMMAND: {
+			smc_id = TZ_OS_RPMB_CHECK_PROV_STATUS_ID;
+			desc.arginfo = TZ_OS_RPMB_CHECK_PROV_STATUS_ID_PARAM_ID;
 			__qseecom_reentrancy_check_if_no_app_blocked(smc_id);
 			ret = scm_call2(smc_id, &desc);
 			break;
@@ -1578,10 +1590,10 @@ static int __qseecom_reentrancy_process_incomplete_cmd(
 		}
 
 		if (ptr_svc->svc.listener_id != lstnr) {
-			pr_warn("Service requested does not exist\n");
+			pr_err("Service requested does not exist\n");
 			return -ERESTARTSYS;
 		}
-		pr_debug("waking up rcv_req_wq and waiting for send_resp_wq\n");
+		pr_err("waking up rcv_req_wq and waiting for send_resp_wq\n");
 
 		/* initialize the new signal mask with all signals*/
 		sigfillset(&new_sigset);
@@ -1624,10 +1636,12 @@ static int __qseecom_reentrancy_process_incomplete_cmd(
 		if (lstnr == RPMB_SERVICE)
 			__qseecom_enable_clk(CLK_QSEE);
 
+		pr_err("Begin sending Listener %d resp to TZ\n", lstnr);
 		ret = qseecom_scm_call(SCM_SVC_TZSCHEDULER, 1,
 					(const void *)&send_data_rsp,
 					sizeof(send_data_rsp), resp,
 					sizeof(*resp));
+		pr_err("Complete sending Listener %d resp to TZ\n", lstnr);
 
 		ptr_svc->listener_in_use = false;
 		wake_up_interruptible(&ptr_svc->listener_block_app_wq);
@@ -1724,8 +1738,13 @@ static int __qseecom_check_app_exists(struct qseecom_check_app_ireq req)
 		if (!memcmp(entry->app_name,
 				req.app_name,
 				strlen(req.app_name))) {
-			found_app = true;
-			break;
+			//Case Number:  02276645
+			//Subject: QSEE daemon loaded wrong tz apps.
+			//Cause  : qseecom didn't check the app name length.
+			if (strlen(entry->app_name) == strlen(req.app_name)) {
+				found_app = true;
+				break;
+			}
 		}
 	}
 	spin_unlock_irqrestore(&qseecom.registered_app_list_lock, flags);
@@ -2301,6 +2320,7 @@ static int qseecom_send_service_cmd(struct qseecom_dev_handle *data,
 	switch (req.cmd_id) {
 	case QSEOS_RPMB_PROVISION_KEY_COMMAND:
 	case QSEOS_RPMB_ERASE_COMMAND:
+	case QSEOS_RPMB_CHECK_PROV_STATUS_COMMAND:
 		send_req_ptr = &send_svc_ireq;
 		req_buf_size = sizeof(send_svc_ireq);
 		if (__qseecom_process_rpmb_svc_cmd(data, &req,
@@ -2363,15 +2383,21 @@ static int qseecom_send_service_cmd(struct qseecom_dev_handle *data,
 	case QSEOS_RESULT_SUCCESS:
 		break;
 	case QSEOS_RESULT_INCOMPLETE:
-		pr_err("qseos_result_incomplete\n");
+		pr_debug("qseos_result_incomplete\n");
 		ret = __qseecom_process_incomplete_cmd(data, &resp);
 		if (ret) {
-			pr_err("process_incomplete_cmd fail: err: %d\n",
-				ret);
+			pr_err("process_incomplete_cmd fail with result: %d\n",
+				resp.result);
+		}
+		if (req.cmd_id == QSEOS_RPMB_CHECK_PROV_STATUS_COMMAND) {
+			pr_warn("RPMB key status is 0x%x\n", resp.result);
+			*(uint32_t *)req.resp_buf = resp.result;
+			ret = 0;
 		}
 		break;
 	case QSEOS_RESULT_FAILURE:
-		pr_err("process_incomplete_cmd failed err: %d\n", ret);
+		pr_err("scm call failed with resp.result: %d\n", resp.result);
+		ret = -EINVAL;
 		break;
 	default:
 		pr_err("Response result %d not supported\n",
@@ -3127,14 +3153,17 @@ static int qseecom_receive_req(struct qseecom_dev_handle *data)
 	}
 
 	while (1) {
+		pr_err("Before wait_event listener_id: %d / pid: %d\n", (uint32_t)data->listener.id, (uint32_t)current->pid);
 		if (wait_event_freezable(this_lstnr->rcv_req_wq,
 				__qseecom_listener_has_rcvd_req(data,
 				this_lstnr))) {
-			pr_debug("Interrupted: exiting Listener Service = %d\n",
+			pr_err("Interrupted: exiting Listener Service = %d\n",
 						(uint32_t)data->listener.id);
 			/* woken up for different reason */
 			return -ERESTARTSYS;
 		}
+
+		pr_err("After wait_event listener_id: %d / pid: %d\n", (uint32_t)data->listener.id, (uint32_t)current->pid);
 
 		if (data->abort) {
 			pr_err("Aborting Listener Service = %d\n",
@@ -4018,7 +4047,7 @@ static int qseecom_reentrancy_send_resp(struct qseecom_dev_handle *data)
 {
 	struct qseecom_registered_listener_list *this_lstnr = NULL;
 
-	pr_debug("lstnr %d send resp, wakeup\n", data->listener.id);
+	pr_err("lstnr %d send resp, wakeup\n", data->listener.id);
 	this_lstnr = __qseecom_find_svc(data->listener.id);
 	if (this_lstnr == NULL)
 		return -EINVAL;
@@ -7077,6 +7106,9 @@ static int qseecom_probe(struct platform_device *pdev)
 					cmd_len = sizeof(struct
 					qsee_apps_region_info_64bit_ireq);
 				}
+#ifdef CONFIG_SEC_DEBUG
+				sec_debug_secure_app_addr_size(req.addr, req.size);
+#endif
 				pr_warn("secure app region addr=0x%x size=0x%x",
 							req.addr, req.size);
 			} else {

@@ -35,7 +35,7 @@
 		pci-domain0 = &pcie0;
 		pci-domain1 = &pcie1;
 		pci-domain2 = &pcie2;
-		i2c6 = &i2c_6;
+		//i2c6 = &i2c_6;
 		i2c7 = &i2c_7;
 		i2c8 = &i2c_8;
 		i2c12 = &i2c_12;
@@ -475,7 +475,7 @@
 			<  5195 /*  681 MHz */ >,
 			<  5859 /*  768 MHz */ >,
 			<  7759 /* 1017 MHz */ >,
-			<  9887 /* 1296 MHz */ >,
+			< 10322 /* 1353 MHz */ >,
 			< 11863 /* 1555 MHz */ >,
 			< 13763 /* 1804 MHz */ >;
 	};
@@ -504,7 +504,7 @@
 			<  5195 /*  681 MHz */ >,
 			<  5859 /*  768 MHz */ >,
 			<  7759 /* 1017 MHz */ >,
-			<  9887 /* 1296 MHz */ >,
+			< 10322 /* 1353 MHz */ >,
 			< 11863 /* 1555 MHz */ >,
 			< 13763 /* 1804 MHz */ >;
 	};
@@ -740,6 +740,9 @@
 		vdd_dig-supply = <&pm8994_s1_corner>;
 		mmpll4_dig-supply = <&pm8994_s1_corner>;
 		mmpll4_analog-supply = <&pm8994_l12>;
+		qcom,vfe0_clk_src-opp-store-vcorner = <&vfe0>;
+		qcom,vfe1_clk_src-opp-store-vcorner = <&vfe1>;
+		qcom,cpp_clk_src-opp-store-vcorner = <&cpp>;
 		clock-names = "xo", "gpll0", "gpll0_div",
 				"pclk0_src", "pclk1_src",
 				"byte0_src", "byte1_src",
@@ -1297,6 +1300,8 @@
 		qcom,l1-supported;
 		qcom,l1ss-supported;
 		qcom,aux-clk-sync;
+		qcom,common-clk-en;
+		qcom,clk-power-manage-en;
 
 		qcom,ep-latency = <10>;
 
@@ -1712,7 +1717,7 @@
 		reg = <0x9830000 0x1000>;
 		reg-names = "wdt-base";
 		interrupts = <0 28 0>, <0 29 0>;
-		qcom,bark-time = <11000>;
+		qcom,bark-time = <15000>;
 		qcom,pet-time = <10000>;
 		qcom,ipi-ping;
 		qcom,wakeup-enable;
@@ -1847,7 +1852,6 @@
 		interrupt-names = "hs_phy_irq", "pwr_event_irq";
 
 		USB3_GDSC-supply = <&gdsc_usb30>;
-		vbus_dwc3-supply = <&smbcharger_charger_otg>;
 		qcom,usb-dbm = <&dbm_1p5>;
 		qcom,msm-bus,name = "usb3";
 		qcom,msm-bus,num-cases = <2>;
@@ -2013,9 +2017,9 @@
 		qcom,vdd-voltage-level = <1 5 7>;
 		qcom,tune2-efuse-bit-pos = <21>;
 		qcom,tune2-efuse-num-bits = <4>;
-		qcom,qusb-phy-init-seq = <0xF8 0x80
-					0xB3 0x84
-					0x83 0x88
+		qcom,qusb-phy-init-seq = <0xD0 0x80
+					0x43 0x84
+					0x81 0x88
 					0xC0 0x8C
 					0x30 0x08
 					0x79 0x0C
@@ -2047,9 +2051,9 @@
 		qcom,vdd-voltage-level = <1 5 7>;
 		qcom,tune2-efuse-bit-pos = <25>;
 		qcom,tune2-efuse-num-bits = <4>;
-		qcom,qusb-phy-init-seq = <0xF8 0x80
-					0xB3 0x84
-					0x83 0x88
+		qcom,qusb-phy-init-seq = <0xD0 0x80
+					0x43 0x84
+					0x81 0x88
 					0xC0 0x8C
 					0x30 0x08
 					0x79 0x0C
@@ -2455,7 +2459,7 @@
 			 <&clock_gcc clk_gcc_ce1_ahb_m_clk>,
 			 <&clock_gcc clk_gcc_ce1_axi_m_clk>;
 		qcom,ce-opp-freq = <171430000>;
-		qcom,qsee-reentrancy-support = <2>;
+		qcom,qsee-reentrancy-support = <0>;
 	};
 
 	qcom,qbt1000 {
@@ -2733,6 +2737,7 @@
 	};
 
 	qcom,bcl {
+		status = "disabled";
 		compatible = "qcom,bcl";
 		qcom,bcl-enable;
 		qcom,bcl-framework-interface;

@@ -2771,7 +2771,7 @@ static int task_load_will_fit(struct task_struct *p, u64 task_load, int cpu)
 		return 1;
 
 	if (task_nice(p) > sched_upmigrate_min_nice || upmigrate_discouraged(p))
-		return 1;
+			return 1;
 
 	if (task_load < sched_upmigrate)
 		return 1;
@@ -2968,14 +2968,60 @@ static inline bool short_sleep_task_waking(struct task_struct *p, int prev_cpu,
 		cpumask_test_cpu(prev_cpu, search_cpus));
 }
 
+struct backup_env {
+	struct task_struct *p;
+	s64 highest_spare_capacity;
+	u64 cpu_load;
+	u64 tload;
+	int cpu;
+	int prev_cpu;
+	int best_capacity_cpu;
+	int boost;
+};
+
+static inline int best_capacity(struct backup_env *env)
+{
+
+	s64 spare_capacity;
+	struct rq *rq = cpu_rq(env->cpu);
+
+	if (!env->boost)
+		goto calc_spare;
+
+	if (rq->capacity != max_capacity && env->tload >= sched_upmigrate)
+		return 0;
+
+	if ((task_nice(env->p) > sched_upmigrate_min_nice ||
+	     upmigrate_discouraged(env->p)) && (rq->capacity == max_capacity))
+		return 0;
+
+calc_spare:
+	spare_capacity = sched_ravg_window - env->cpu_load;
+
+	if (spare_capacity <= 0)
+		return 0;
+
+	if (spare_capacity > env->highest_spare_capacity ||
+	    (spare_capacity == env->highest_spare_capacity &&
+		(env->cpu == env->prev_cpu ||
+		(env->best_capacity_cpu != env->prev_cpu &&
+		cpus_share_cache(env->prev_cpu, env->cpu))))) {
+		env->highest_spare_capacity = spare_capacity;
+		return 1;
+	}
+
+	return 0;
+}
+
 /* return cheapest cpu that can fit this task */
 static int select_best_cpu(struct task_struct *p, int target, int reason,
 			   int sync)
 {
-	int i, best_cpu = -1, best_idle_cpu = -1, best_capacity_cpu = -1;
+	int i, best_cpu = -1, best_idle_cpu = -1,  best_capacity_cpu=-1;
 	int prev_cpu = task_cpu(p), best_sibling_cpu = -1;
 	int cpu_cost, min_cost = INT_MAX, best_sibling_cpu_cost = INT_MAX;
 	u64 tload, cpu_load, best_sibling_cpu_load = ULLONG_MAX;
+	u64 taskload = task_load(p);
 	u64 min_load = ULLONG_MAX;
 	s64 spare_capacity, highest_spare_capacity = 0;
 	int boost = sched_boost();
@@ -2983,6 +3029,13 @@ static int select_best_cpu(struct task_struct *p, int target, int reason,
 	bool fast_path = false;
 	cpumask_t search_cpus;
 	struct rq *trq;
+	struct backup_env env;
+
+	env.highest_spare_capacity = 0;
+	env.p = p;
+	env.best_capacity_cpu = -1;
+	env.boost = boost;
+	env.prev_cpu = prev_cpu;
 
 	cpumask_and(&search_cpus, tsk_cpus_allowed(p), cpu_online_mask);
 
@@ -3011,7 +3064,7 @@ static int select_best_cpu(struct task_struct *p, int target, int reason,
 
 		trace_sched_cpu_load_wakeup(cpu_rq(i), idle_cpu(i),
 		 sched_irqload(i),
-		 power_cost(i, task_load(p) + cpu_cravg_sync(i, sync)),
+		 power_cost(i, taskload + cpu_cravg_sync(i, sync)),
 		 cpu_temp(i));
 
 		if (skip_freq_domain(trq, rq, reason)) {
@@ -3023,23 +3076,16 @@ static int select_best_cpu(struct task_struct *p, int target, int reason,
 		if (skip_cpu(trq, rq, i, reason))
 			continue;
 
-		cpu_load = cpu_load_sync(i, sync);
-		spare_capacity = sched_ravg_window - cpu_load;
+		env.cpu_load = cpu_load = cpu_load_sync(i, sync);
+		env.tload = tload = scale_load_to_cpu(taskload, i);
+		env.cpu = i;
 
-		/* Note the highest spare capacity CPU in the system */
-		if (spare_capacity > 0 &&
-		    (spare_capacity > highest_spare_capacity ||
-		     (spare_capacity == highest_spare_capacity &&
-				cpu_rq(i)->capacity >
-				cpu_rq(best_capacity_cpu)->capacity))) {
-			highest_spare_capacity = spare_capacity;
-			best_capacity_cpu = i;
-		}
+		if (best_capacity(&env))
+			env.best_capacity_cpu = i;
 
 		if (boost)
 			continue;
 
-		tload = scale_load_to_cpu(task_load(p), i);
 		if (!eligible_cpu(tload, cpu_load, i, sync) ||
 					!task_load_will_fit(p, tload, i))
 			continue;
@@ -3049,7 +3095,7 @@ static int select_best_cpu(struct task_struct *p, int target, int reason,
 		 * under spill.
 		 */
 
-		cpu_cost = power_cost(i, task_load(p) +
+		cpu_cost = power_cost(i, taskload +
 					 cpu_cravg_sync(i, sync));
 
 		if (cpu_cost > min_cost)
@@ -3094,10 +3140,10 @@ static int select_best_cpu(struct task_struct *p, int target, int reason,
 	if (best_idle_cpu >= 0) {
 		best_cpu = best_idle_cpu;
 	} else if (best_cpu < 0 || boost) {
-		if (unlikely(best_capacity_cpu < 0))
+		if (unlikely(env.best_capacity_cpu < 0))
 			best_cpu = prev_cpu;
 		else
-			best_cpu = best_capacity_cpu;
+			best_cpu = env.best_capacity_cpu;
 	} else {
 		if (best_cpu != prev_cpu && min_cost == best_sibling_cpu_cost)
 			best_cpu = best_sibling_cpu;

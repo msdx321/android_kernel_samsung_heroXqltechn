@@ -18,6 +18,7 @@
 #include <linux/scatterlist.h>
 
 #define VMID_HLOS 0x3
+#define VMID_ADSP 0x6
 #define VMID_CP_TOUCH 0x8
 #define VMID_CP_BITSTREAM 0x9
 #define VMID_CP_PIXEL 0xA

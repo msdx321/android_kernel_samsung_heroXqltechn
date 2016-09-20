@@ -57,6 +57,10 @@
 
 #include "mdss_mdp_trace.h"
 
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+#include "samsung/ss_dsi_panel_common.h"
+#endif
+
 #define AXI_HALT_TIMEOUT_US	0x4000
 #define AUTOSUSPEND_TIMEOUT_MS	200
 #define DEFAULT_MDP_PIPE_WIDTH	2048
@@ -99,7 +103,7 @@ static struct mdss_panel_intf pan_types[] = {
 	{"edp", MDSS_PANEL_INTF_EDP},
 	{"hdmi", MDSS_PANEL_INTF_HDMI},
 };
-static char mdss_mdp_panel[MDSS_MAX_PANEL_LEN];
+char mdss_mdp_panel[MDSS_MAX_PANEL_LEN];
 
 struct mdss_hw mdss_mdp_hw = {
 	.hw_ndx = MDSS_HW_MDP,
@@ -159,6 +163,52 @@ static int mdss_mdp_parse_dt_bus_scale(struct platform_device *pdev);
 static int mdss_mdp_parse_dt_ppb_off(struct platform_device *pdev);
 static int mdss_mdp_parse_dt_cdm(struct platform_device *pdev);
 static int mdss_mdp_parse_dt_dsc(struct platform_device *pdev);
+
+/**
+ * mdss_mdp_vbif_axi_halt() - Halt MDSS AXI ports
+ * @mdata: pointer to the global mdss data structure.
+ *
+ * Check if MDSS AXI ports connected to RealTime(RT) VBIF are idle or not. If
+ * not send a halt request and wait for it be idle.
+ *
+ * This function can be called during deep suspend, display off or for
+ * debugging purposes. On success it should be assumed that AXI ports connected
+ * to RT VBIF are in idle state and would not fetch any more data. This function
+ * cannot be called from interrupt context.
+ */
+int mdss_mdp_vbif_axi_halt(struct mdss_data_type *mdata)
+{
+	bool is_idle;
+	int rc = 0;
+	u32 reg_val, idle_mask, status;
+
+	idle_mask = BIT(4);
+	if (mdata->axi_port_cnt == 2)
+		idle_mask |= BIT(5);
+
+	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
+	reg_val = MDSS_VBIF_READ(mdata, MMSS_VBIF_AXI_HALT_CTRL1, false);
+
+	is_idle = (reg_val & idle_mask) ? true : false;
+	if (!is_idle) {
+		pr_err("axi is not idle. halt_ctrl1=%d\n", reg_val);
+
+		MDSS_VBIF_WRITE(mdata, MMSS_VBIF_AXI_HALT_CTRL0, 1, false);
+
+		rc = readl_poll_timeout(mdata->vbif_io.base +
+			MMSS_VBIF_AXI_HALT_CTRL1, status, (status & idle_mask),
+			1000, AXI_HALT_TIMEOUT_US);
+		if (rc == -ETIMEDOUT)
+			pr_err("VBIF axi is not halting. TIMEDOUT.\n");
+		else
+			pr_debug("VBIF axi is halted\n");
+
+		MDSS_VBIF_WRITE(mdata, MMSS_VBIF_AXI_HALT_CTRL0, 0, false);
+	}
+	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
+
+	return rc;
+}
 
 u32 mdss_mdp_fb_stride(u32 fb_index, u32 xres, int bpp)
 {
@@ -512,6 +562,8 @@ int mdss_mdp_irq_enable(u32 intr_type, u32 intf_num)
 
 	irq = mdss_mdp_irq_mask(intr_type, intf_num);
 
+	MDSS_XLOG(irq, mdata->mdp_irq_mask, 0x1111); /* Temp log for case 02160908 */
+
 	spin_lock_irqsave(&mdp_lock, irq_flags);
 	if (mdata->mdp_irq_mask & irq) {
 		pr_warn("MDSS MDP IRQ-0x%x is already set, mask=%x\n",
@@ -535,6 +587,8 @@ int mdss_mdp_hist_irq_enable(u32 irq)
 {
 	int ret = 0;
 	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
+
+	MDSS_XLOG(irq, mdata->mdp_hist_irq_mask, 0x1111); /* Temp log for case 02160908 */
 
 	if (mdata->mdp_hist_irq_mask & irq) {
 		pr_warn("MDSS MDP Hist IRQ-0x%x is already set, mask=%x\n",
@@ -562,7 +616,10 @@ void mdss_mdp_irq_disable(u32 intr_type, u32 intf_num)
 
 	irq = mdss_mdp_irq_mask(intr_type, intf_num);
 
+	MDSS_XLOG(irq, mdata->mdp_irq_mask, 0x1111); /* Temp log for case 02160908 */
+
 	spin_lock_irqsave(&mdp_lock, irq_flags);
+	MDSS_XLOG(irq, mdata->mdp_irq_mask);
 	if (!(mdata->mdp_irq_mask & irq)) {
 		pr_warn("MDSS MDP IRQ-%x is NOT set, mask=%x\n",
 				irq, mdata->mdp_irq_mask);
@@ -591,6 +648,7 @@ void mdss_mdp_intr_check_and_clear(u32 intr_type, u32 intf_num)
 	irq = mdss_mdp_irq_mask(intr_type, intf_num);
 
 	spin_lock_irqsave(&mdp_lock, irq_flags);
+	MDSS_XLOG(irq, intr_type, intf_num);
 	status = irq & readl_relaxed(mdata->mdp_base +
 			MDSS_MDP_REG_INTR_STATUS);
 	if (status) {
@@ -604,6 +662,8 @@ void mdss_mdp_intr_check_and_clear(u32 intr_type, u32 intf_num)
 void mdss_mdp_hist_irq_disable(u32 irq)
 {
 	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
+
+	MDSS_XLOG(irq, mdata->mdp_hist_irq_mask, 0x1111); /* Temp log for case 02160908 */
 
 	if (!(mdata->mdp_hist_irq_mask & irq)) {
 		pr_warn("MDSS MDP IRQ-%x is NOT set, mask=%x\n",
@@ -728,88 +788,7 @@ unsigned long mdss_mdp_get_clk_rate(u32 clk_idx, bool locked)
 		if (!locked)
 			mutex_unlock(&mdp_clk_lock);
 	}
-
 	return clk_rate;
-}
-
-/**
- * __mdss_mdp_reg_access_clk_enable - Enable minimum MDSS clocks required
- * for register access
- */
-static inline void __mdss_mdp_reg_access_clk_enable(
-		struct mdss_data_type *mdata, bool enable)
-{
-	if (enable) {
-		mdss_update_reg_bus_vote(mdata->reg_bus_clt,
-				VOTE_INDEX_19_MHZ);
-		mdss_mdp_clk_update(MDSS_CLK_AHB, 1);
-		mdss_mdp_clk_update(MDSS_CLK_AXI, 1);
-		mdss_mdp_clk_update(MDSS_CLK_MDP_CORE, 1);
-	} else {
-		mdss_mdp_clk_update(MDSS_CLK_MDP_CORE, 0);
-		mdss_mdp_clk_update(MDSS_CLK_AXI, 0);
-		mdss_mdp_clk_update(MDSS_CLK_AHB, 0);
-		mdss_update_reg_bus_vote(mdata->reg_bus_clt,
-				VOTE_INDEX_DISABLE);
-	}
-}
-
-int __mdss_mdp_vbif_halt(struct mdss_data_type *mdata, bool is_nrt)
-{
-	int rc = 0;
-	void __iomem *base;
-	u32 halt_ack_mask = BIT(0), status;
-
-	/* if not real time vbif */
-	if (is_nrt)
-		base = mdata->vbif_nrt_io.base;
-	else
-		base = mdata->vbif_io.base;
-
-	if (!base) {
-		/* some targets might not have a nrt port */
-		goto vbif_done;
-	}
-
-	/* force vbif clock on */
-	MDSS_VBIF_WRITE(mdata, MMSS_VBIF_CLKON, 1, is_nrt);
-
-	/* request halt */
-	MDSS_VBIF_WRITE(mdata, MMSS_VBIF_AXI_HALT_CTRL0, 1, is_nrt);
-
-	rc = readl_poll_timeout(base +
-			MMSS_VBIF_AXI_HALT_CTRL1, status, (status &
-				halt_ack_mask),
-			1000, AXI_HALT_TIMEOUT_US);
-	if (rc == -ETIMEDOUT) {
-		pr_err("VBIF axi is not halting. TIMEDOUT.\n");
-		goto vbif_done;
-	}
-
-	pr_debug("VBIF axi is halted\n");
-
-vbif_done:
-	return rc;
-}
-
-/**
- * mdss_mdp_vbif_axi_halt() - Halt MDSS AXI ports
- * @mdata: pointer to the global mdss data structure.
- *
- * This function can be called during deep suspend, display off or for
- * debugging purposes. On success it should be assumed that AXI ports connected
- * to RT VBIF are in idle state and would not fetch any more data.
- */
-static void mdss_mdp_vbif_axi_halt(struct mdss_data_type *mdata)
-{
-	__mdss_mdp_reg_access_clk_enable(mdata, true);
-
-	/* real time ports */
-	__mdss_mdp_vbif_halt(mdata, false);
-	/* non-real time ports */
-	__mdss_mdp_vbif_halt(mdata, true);
-
-	__mdss_mdp_reg_access_clk_enable(mdata, false);
 }
 
 int mdss_iommu_ctrl(int enable)
@@ -941,6 +920,7 @@ void mdss_mdp_clk_ctrl(int enable)
 {
 	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
 	static int mdp_clk_cnt;
+	unsigned long flags;
 	int changed = 0;
 	int rc = 0;
 
@@ -982,7 +962,9 @@ void mdss_mdp_clk_ctrl(int enable)
 				false, mdata->curr_bw_uc_idx);
 		}
 
+		spin_lock_irqsave(&mdp_lock, flags);
 		mdata->clk_ena = enable;
+		spin_unlock_irqrestore(&mdp_lock, flags);
 		mdss_mdp_clk_update(MDSS_CLK_AHB, enable);
 		mdss_mdp_clk_update(MDSS_CLK_AXI, enable);
 		mdss_mdp_clk_update(MDSS_CLK_MDP_CORE, enable);
@@ -1042,14 +1024,20 @@ static void __mdss_restore_sec_cfg(struct mdss_data_type *mdata)
 
 	pr_debug("restoring mdss secure config\n");
 
-	__mdss_mdp_reg_access_clk_enable(mdata, true);
+	mdss_update_reg_bus_vote(mdata->reg_bus_clt, VOTE_INDEX_19_MHZ);
+	mdss_mdp_clk_update(MDSS_CLK_AHB, 1);
+	mdss_mdp_clk_update(MDSS_CLK_AXI, 1);
+	mdss_mdp_clk_update(MDSS_CLK_MDP_CORE, 1);
 
 	ret = scm_restore_sec_cfg(SEC_DEVICE_MDSS, 0, &scm_ret);
 	if (ret || scm_ret)
 		pr_warn("scm_restore_sec_cfg failed %d %d\n",
 				ret, scm_ret);
 
-	__mdss_mdp_reg_access_clk_enable(mdata, false);
+	mdss_mdp_clk_update(MDSS_CLK_AHB, 0);
+	mdss_update_reg_bus_vote(mdata->reg_bus_clt, VOTE_INDEX_DISABLE);
+	mdss_mdp_clk_update(MDSS_CLK_AXI, 0);
+	mdss_mdp_clk_update(MDSS_CLK_MDP_CORE, 0);
 }
 
 static int mdss_mdp_gdsc_notifier_call(struct notifier_block *self,
@@ -1059,13 +1047,8 @@ static int mdss_mdp_gdsc_notifier_call(struct notifier_block *self,
 
 	mdata = container_of(self, struct mdss_data_type, gdsc_cb);
 
-	if (event & REGULATOR_EVENT_ENABLE) {
+	if (event & REGULATOR_EVENT_ENABLE)
 		__mdss_restore_sec_cfg(mdata);
-	} else if (event & REGULATOR_EVENT_PRE_DISABLE) {
-		pr_debug("mdss gdsc is getting disabled\n");
-		/* halt the vbif transactions */
-		mdss_mdp_vbif_axi_halt(mdata);
-	}
 
 	return NOTIFY_OK;
 }
@@ -1215,9 +1198,12 @@ static void mdss_mdp_hw_rev_caps_init(struct mdss_data_type *mdata)
 	mdata->min_prefill_lines = 0xffff;
 	/* clock gating feature is disabled by default */
 	mdata->enable_gate = true;
+	mdata->wait4autorefresh = false;
+	mdata->serialize_wait4pp = false;
 	mdata->pixel_ram_size = 0;
 
 	mdss_mdp_hw_rev_debug_caps_init(mdata);
+	mdss_set_quirk(mdata, MDSS_QUIRK_AUTOREFRESH);
 
 	switch (mdata->mdp_rev) {
 	case MDSS_MDP_HW_REV_107:
@@ -1340,10 +1326,6 @@ void mdss_hw_init(struct mdss_data_type *mdata)
 		/* swap */
 		writel_relaxed(1, offset + 16);
 	}
-
-	/* initialize csc matrix default value */
-	for (i = 0; i < mdata->nvig_pipes; i++)
-		vig[i].csc_coeff_set = MDSS_MDP_CSC_YUV2RGB_709L;
 
 	mdata->nmax_concurrent_ad_hw =
 		(mdata->mdp_rev < MDSS_MDP_HW_REV_103) ? 1 : 2;
@@ -1775,6 +1757,13 @@ static int mdss_mdp_probe(struct platform_device *pdev)
 		pr_debug("MDSS VBIF NRT HW Base addr=%p len=0x%x\n",
 			mdata->vbif_nrt_io.base, mdata->vbif_nrt_io.len);
 
+	rc = msm_dss_ioremap_byname(pdev, &mdata->mmss_cc_io, "mmss_cc");
+	if (rc)
+		pr_debug("unable to map MMSS CC\n");
+	else
+		pr_debug("MMSS CC Base addr=%p len=0x%x\n",
+			mdata->mmss_cc_io.base, mdata->mmss_cc_io.len);
+
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (!res) {
 		pr_err("unable to get MDSS irq\n");
@@ -1882,6 +1871,10 @@ static int mdss_mdp_probe(struct platform_device *pdev)
 	else
 		mdata->handoff_pending = true;
 
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	if (!mdss_panel_attached(DISPLAY_1) && !mdss_panel_attached(DISPLAY_2))
+		mdata->handoff_pending = false;
+#endif
 	pr_info("mdss version = 0x%x, bootloader display is %s\n",
 		mdata->mdp_rev, display_on ? "on" : "off");
 
@@ -3872,6 +3865,7 @@ static void mdss_mdp_footswitch_ctrl(struct mdss_data_type *mdata, int on)
 	if (on) {
 		if (!mdata->fs_ena) {
 			pr_debug("Enable MDP FS\n");
+			MDSS_XLOG(1);
 			if (mdata->venus) {
 				ret = regulator_enable(mdata->venus);
 				if (ret)
@@ -3892,6 +3886,7 @@ static void mdss_mdp_footswitch_ctrl(struct mdss_data_type *mdata, int on)
 	} else {
 		if (mdata->fs_ena) {
 			pr_debug("Disable MDP FS\n");
+			MDSS_XLOG(0);
 			active_cnt = atomic_read(&mdata->active_intf_cnt);
 			if (active_cnt != 0) {
 				/*
@@ -3913,6 +3908,7 @@ static void mdss_mdp_footswitch_ctrl(struct mdss_data_type *mdata, int on)
 		}
 		mdata->fs_ena = false;
 	}
+	MDSS_XLOG(on, mdata->fs_ena,mdata->idle_pc,mdata->en_svs_high,0x2222);
 }
 
 int mdss_mdp_secure_display_ctrl(unsigned int enable)

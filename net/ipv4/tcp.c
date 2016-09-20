@@ -866,8 +866,10 @@ static unsigned int tcp_xmit_size_goal(struct sock *sk, u32 mss_now,
 		gso_size = max_t(u32, gso_size,
 				 sysctl_tcp_min_tso_segs * mss_now);
 
+/* For_WiFi_Throughput_enhancement
 		xmit_size_goal = min_t(u32, gso_size,
 				       sk->sk_gso_max_size - 1 - hlen);
+*/
 
 		xmit_size_goal = tcp_bound_to_half_wnd(tp, xmit_size_goal);
 
@@ -1681,7 +1683,7 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 				 "recvmsg bug: copied %X seq %X rcvnxt %X fl %X\n",
 				 *seq, TCP_SKB_CB(skb)->seq, tp->rcv_nxt,
 				 flags))
-				break;
+				goto selfdestruct;
 
 			offset = *seq - TCP_SKB_CB(skb)->seq;
 			if (TCP_SKB_CB(skb)->tcp_flags & TCPHDR_SYN)
@@ -1936,6 +1938,10 @@ recv_urg:
 
 recv_sndq:
 	err = tcp_peek_sndq(sk, msg, len);
+	goto out;
+selfdestruct:
+	err = -EBADFD;
+	tcp_done(sk);
 	goto out;
 }
 EXPORT_SYMBOL(tcp_recvmsg);

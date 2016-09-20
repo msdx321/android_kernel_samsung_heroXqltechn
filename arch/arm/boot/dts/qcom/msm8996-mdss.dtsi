@@ -15,8 +15,11 @@
 		compatible = "qcom,mdss_mdp";
 		reg = <0x00900000 0x90000>,
 		      <0x009b0000 0x1040>,
+		      <0x00d00000 0x8040>,
+			  <0x008a0000 0x8000>,
+			  <0x008c0000 0xb00c>,
 		      <0x009b8000 0x1040>;
-		reg-names = "mdp_phys", "vbif_phys", "vbif_nrt_phys";
+		reg-names = "mdp_phys", "vbif_phys", "mdp_smmu_phys", "noc_phys", "mmss_cc", "vbif_nrt_phys";
 		interrupts = <0 83 0>;
 		vdd-supply = <&gdsc_mdss>;
 
@@ -117,8 +120,7 @@
 		clock-names = "iface_clk", "bus_clk", "core_clk_src",
 				"core_clk", "vsync_clk";
 
-		qcom,mdp-settings = <0x01190 0x00000000>,
-				    <0x012ac 0xc0000ccc>,
+		qcom,mdp-settings = <0x012ac 0xc0000ccc>,
 				    <0x012b4 0xc0000ccc>,
 				    <0x012bc 0x00cccccc>,
 				    <0x012c4 0x000000cc>,
@@ -372,8 +374,6 @@
 
 			oled-vdda-supply = <&pm8994_l19>;
 			vddio-supply = <&pm8994_l14>;
-			lab-supply = <&lab_regulator>;
-			ibb-supply = <&ibb_regulator>;
 			qcom,mdss-mdp = <&mdss_mdp>;
 			qcom,mdss-fb-map = <&mdss_fb0>;
 
@@ -414,11 +414,8 @@
 				<0x996400 0x558>,
 				<0x828000 0x108>;
 			reg-names = "dsi_ctrl", "dsi_phy", "mmss_misc_phys";
-
 			oled-vdda-supply = <&pm8994_l19>;
 			vddio-supply = <&pm8994_l14>;
-			lab-supply = <&lab_regulator>;
-			ibb-supply = <&ibb_regulator>;
 			qcom,mdss-mdp = <&mdss_mdp>;
 			qcom,mdss-fb-map = <&mdss_fb0>;
 

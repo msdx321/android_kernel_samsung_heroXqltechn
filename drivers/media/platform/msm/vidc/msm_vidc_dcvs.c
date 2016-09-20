@@ -27,9 +27,15 @@ static int msm_dcvs_dec_scale_clocks(struct msm_vidc_inst *inst, bool fbd);
 static inline int msm_dcvs_get_mbs_per_frame(struct msm_vidc_inst *inst)
 {
 	int height, width;
+	
+	if (!inst->in_reconfig) {
+		height = inst->prop.height[CAPTURE_PORT];
+		width = inst->prop.width[CAPTURE_PORT];
+	} else {
+		height = inst->reconfig_height;
+		width = inst->reconfig_width;
+	}
 
-	height = inst->prop.height[CAPTURE_PORT];
-	width = inst->prop.width[CAPTURE_PORT];
 	return NUM_MBS_PER_FRAME(height, width);
 }
 

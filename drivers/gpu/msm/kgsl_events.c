@@ -32,6 +32,7 @@ static inline void signal_event(struct kgsl_device *device,
 {
 	list_del(&event->node);
 	event->result = result;
+	trace_printk("ctx:%d, ts:%d, work:0x%p, %pF\n", KGSL_CONTEXT_ID(event->context), event->timestamp, &event->work, __builtin_return_address(0));
 	queue_work(device->events_wq, &event->work);
 }
 
@@ -284,6 +285,7 @@ int kgsl_add_event(struct kgsl_device *device, struct kgsl_event_group *group,
 
 	if (timestamp_cmp(retired, timestamp) >= 0) {
 		event->result = KGSL_EVENT_RETIRED;
+		trace_printk("ctx:%d, ts:%d, retired:%d, work:0x%p, %pF\n", KGSL_CONTEXT_ID(context), timestamp, retired, &event->work, __builtin_return_address(0));
 		queue_work(device->events_wq, &event->work);
 		spin_unlock(&group->lock);
 		return 0;
@@ -311,6 +313,7 @@ void kgsl_process_events(struct work_struct *work)
 	struct kgsl_device *device = container_of(work, struct kgsl_device,
 		event_work);
 
+	trace_printk("work:%p, %pF\n", work, __builtin_return_address(0));
 	read_lock(&group_lock);
 	list_for_each_entry(group, &group_list, group)
 		_process_event_group(device, group, false);

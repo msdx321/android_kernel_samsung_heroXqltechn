@@ -28,6 +28,10 @@
 #include <linux/sw_sync.h>
 #include <linux/kmemleak.h>
 
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+#include "../../../video/msm/mdss/samsung/ss_dsi_panel_common.h" /* UTIL HEADER */
+#endif
+
 #include <soc/qcom/event_timer.h>
 #include <linux/msm-bus.h>
 #include "mdss.h"
@@ -977,6 +981,24 @@ skip_reconfigure:
 
 	mdss_mdp_pipe_unmap(pipe);
 
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	pr_debug("L_mixer:%d R_mixer:%d %s z:%d format:%d flag:0x%x src.x:%d y:%d w:%d h:%d "
+			"des_rect.x:%d y:%d w:%d h:%d mdss\n",
+			pipe->mixer_left ? pipe->mixer_left->num : -1,
+			pipe->mixer_right? pipe->mixer_right->num : -1,
+			pipe->ndx == BIT(0) ? "VG0" : pipe->ndx == BIT(1) ? "VG1" :
+			pipe->ndx == BIT(2) ? "VG2" : pipe->ndx == BIT(3) ? "RGB0" :
+			pipe->ndx == BIT(4) ? "RGB1" : pipe->ndx == BIT(5) ? "RGB2" :
+			pipe->ndx == BIT(6) ? "DMA0" : pipe->ndx == BIT(7) ? "DMA1":
+			pipe->ndx == BIT(8) ? "VG3" : pipe->ndx == BIT(9) ? "RGB3":
+			pipe->ndx == BIT(10) ? "CURSOR0" : pipe->ndx == BIT(11) ? "CURSOR1" : "MAX_SSPP",
+			pipe->mixer_stage - MDSS_MDP_STAGE_0,
+			pipe->src_fmt->format,
+			pipe->flags,
+			pipe->src.x, pipe->src.y, pipe->src.w, pipe->src.h,
+			pipe->dst.x, pipe->dst.y, pipe->dst.w, pipe->dst.h);
+#endif
+
 	return ret;
 exit_fail:
 	mdss_mdp_pipe_unmap(pipe);
@@ -1323,12 +1345,12 @@ int mdss_mdp_overlay_start(struct msm_fb_data_type *mfd)
 		rc = list_empty(&mdp5_data->pipes_used);
 		mutex_unlock(&mdp5_data->list_lock);
 		if (rc) {
-			pr_debug("empty kickoff on fb%d during cont splash\n",
+			pr_err("empty kickoff on fb%d during cont splash\n",
 					mfd->index);
 			return 0;
 		}
 	} else if (mdata->handoff_pending) {
-		pr_warn("fb%d: commit while splash handoff pending\n",
+		pr_err("fb%d: commit while splash handoff pending\n",
 				mfd->index);
 		return -EPERM;
 	}
@@ -1510,6 +1532,8 @@ static int __overlay_queue_pipes(struct msm_fb_data_type *mfd)
 		/* ensure pipes are reconfigured after power off/on */
 		if (ctl->play_cnt == 0)
 			pipe->params_changed++;
+		if (ctl->mixer_cfg_changed)
+			pipe->params_changed++;
 
 		if (buf && (buf->state == MDP_BUF_STATE_READY)) {
 			buf->state = MDP_BUF_STATE_ACTIVE;
@@ -1549,6 +1573,25 @@ static int __overlay_queue_pipes(struct msm_fb_data_type *mfd)
 			if (buf)
 				__pipe_buf_mark_cleanup(mfd, buf);
 		}
+
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+		pr_debug("L_mixer:%d R_mixer:%d %s z:%d format:%d flag:0x%x src.x:%d y:%d w:%d h:%d "
+			"des_rect.x:%d y:%d w:%d h:%d mdss\n",
+			pipe->mixer_left ? pipe->mixer_left->num : -1,
+			pipe->mixer_right? pipe->mixer_right->num : -1,
+			pipe->ndx == BIT(0) ? "VG0" : pipe->ndx == BIT(1) ? "VG1" :
+			pipe->ndx == BIT(2) ? "VG2" : pipe->ndx == BIT(3) ? "RGB0" :
+			pipe->ndx == BIT(4) ? "RGB1" : pipe->ndx == BIT(5) ? "RGB2" :
+			pipe->ndx == BIT(6) ? "DMA0" : pipe->ndx == BIT(7) ? "DMA1":
+			pipe->ndx == BIT(8) ? "VG3" : pipe->ndx == BIT(9) ? "RGB3":
+			pipe->ndx == BIT(10) ? "CURSOR0" : pipe->ndx == BIT(11) ? "CURSOR1" : "MAX_SSPP",
+			pipe->mixer_stage - MDSS_MDP_STAGE_0,
+			pipe->src_fmt->format,
+			pipe->flags,
+			pipe->src.x, pipe->src.y, pipe->src.w, pipe->src.h,
+			pipe->dst.x, pipe->dst.y, pipe->dst.w, pipe->dst.h);
+#endif
+
 	}
 
 	return 0;
@@ -1896,6 +1939,8 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 	if (!ctl)
 		return -ENODEV;
 
+	pr_debug("%s +\n", __func__);
+
 	ATRACE_BEGIN(__func__);
 	if (ctl->shared_lock) {
 		mdss_mdp_ctl_notify(ctl, MDP_NOTIFY_FRAME_BEGIN);
@@ -1969,6 +2014,10 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 		list_move(&pipe->list, &mdp5_data->pipes_destroy);
 	}
 
+	/* call this function before any registers programming */
+	if (ctl->ops.pre_programming)
+		ctl->ops.pre_programming(ctl);
+
 	ATRACE_BEGIN("sspp_programming");
 	ret = __overlay_queue_pipes(mfd);
 	ATRACE_END("sspp_programming");
@@ -1990,6 +2039,7 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 			&commit_cb);
 		ATRACE_END("display_commit");
 	}
+
 
 	/*
 	 * release the validate flag; we are releasing this flag
@@ -2043,6 +2093,11 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 	}
 
 	mdss_fb_update_notify_update(mfd);
+
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	mdss_mdp_ctl_intf_event(mdp5_data->ctl, MDSS_SAMSUNG_EVENT_FRAME_UPDATE, NULL, false);
+#endif
+
 commit_fail:
 	ATRACE_BEGIN("overlay_cleanup");
 	mdss_mdp_overlay_cleanup(mfd, &mdp5_data->pipes_destroy);
@@ -2637,14 +2692,15 @@ int mdss_mdp_overlay_vsync_ctrl(struct msm_fb_data_type *mfd, int en)
 	if (!ctl->ops.add_vsync_handler || !ctl->ops.remove_vsync_handler)
 		return -EOPNOTSUPP;
 	if (!ctl->panel_data->panel_info.cont_splash_enabled
-		&& (!mdss_mdp_ctl_is_power_on(ctl) ||
-		mdss_panel_is_power_on_ulp(ctl->power_state))) {
+			&& (!mdss_mdp_ctl_is_power_on(ctl) ||
+			mdss_panel_is_power_on_ulp(ctl->power_state))) {
 		pr_debug("fb%d vsync pending first update en=%d\n",
 				mfd->index, en);
 		return -EPERM;
 	}
 
 	pr_debug("fb%d vsync en=%d\n", mfd->index, en);
+	MDSS_XLOG(mfd->index, en);
 
 	mutex_lock(&mdp5_data->ov_lock);
 	mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
@@ -3043,22 +3099,9 @@ static ssize_t mdss_mdp_cmd_autorefresh_show(struct device *dev,
 		ret = -EINVAL;
 	} else {
 		ret = snprintf(buf, PAGE_SIZE, "%d\n",
-				ctl->autorefresh_frame_cnt);
+			mdss_mdp_ctl_cmd_get_autorefresh(ctl));
 	}
 	return ret;
-}
-
-static inline int mdss_validate_autorefresh_param(struct mdss_mdp_ctl *ctl,
-	int frame_cnt)
-{
-	int rc = 0;
-
-	if (frame_cnt < 0 || frame_cnt >= BIT(16)) {
-		rc = -EINVAL;
-		pr_err("frame cnt %d is out of range (16 bits).\n", frame_cnt);
-	}
-
-	return rc;
 }
 
 static ssize_t mdss_mdp_cmd_autorefresh_store(struct device *dev,
@@ -3092,27 +3135,26 @@ static ssize_t mdss_mdp_cmd_autorefresh_store(struct device *dev,
 	if (rc) {
 		pr_err("kstrtoint failed. rc=%d\n", rc);
 		return rc;
-	} else if (frame_cnt != ctl->autorefresh_frame_cnt) {
-		rc = mdss_validate_autorefresh_param(ctl, frame_cnt);
-		if (rc)
-			return rc;
-
-		if (frame_cnt) {
-			/* enable autorefresh */
-			mfd->mdp_sync_pt_data.threshold = 2;
-			mfd->mdp_sync_pt_data.retire_threshold = 0;
-		} else {
-			/* disable autorefresh */
-			mfd->mdp_sync_pt_data.threshold = 1;
-			mfd->mdp_sync_pt_data.retire_threshold = 1;
-		}
-
-		rc = mdss_mdp_ctl_cmd_autorefresh_enable(ctl, frame_cnt);
-		if (rc)
-			return rc;
 	}
-	pr_debug("Setting video autorefresh=%d cnt=%d\n",
-		ctl->cmd_autorefresh_en, frame_cnt);
+
+	rc = mdss_mdp_ctl_cmd_set_autorefresh(ctl, frame_cnt);
+	if (rc) {
+		pr_err("cmd_set_autorefresh failed, rc=%d, frame_cnt=%d\n",
+			rc, frame_cnt);
+		return rc;
+	}
+
+	if (frame_cnt) {
+		/* enable/reconfig autorefresh */
+		mfd->mdp_sync_pt_data.threshold = 2;
+		mfd->mdp_sync_pt_data.retire_threshold = 0;
+	} else {
+		/* disable autorefresh */
+		mfd->mdp_sync_pt_data.threshold = 1;
+		mfd->mdp_sync_pt_data.retire_threshold = 1;
+	}
+
+	pr_debug("setting cmd autorefresh to cnt=%d\n", frame_cnt);
 
 	return len;
 }
@@ -4450,6 +4492,8 @@ static struct mdss_mdp_ctl *__mdss_mdp_overlay_ctl_init(
 	struct mdss_panel_data *pdata;
 	struct mdss_overlay_private *mdp5_data;
 
+	pr_info("%s ++\n", __func__);
+
 	if (!mfd)
 		return ERR_PTR(-EINVAL);
 
@@ -4503,6 +4547,7 @@ static struct mdss_mdp_ctl *__mdss_mdp_overlay_ctl_init(
 		rc = 0;
 	}
 
+	pr_info("%s --	\n", __func__);
 error:
 	if (rc)
 		return ERR_PTR(rc);
@@ -4538,6 +4583,25 @@ static void mdss_mdp_set_lm_flag(struct msm_fb_data_type *mfd)
 	}
 }
 
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+struct samsung_display_driver_data* mdss_samsung_get_vdd(struct mdss_mdp_ctl *ctl)
+{
+	struct samsung_display_driver_data *vdd = NULL;
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+
+	ctrl_pdata = container_of(ctl->panel_data, struct mdss_dsi_ctrl_pdata,
+				panel_data);
+
+	vdd = check_valid_ctrl(ctrl_pdata);
+	if (IS_ERR_OR_NULL(vdd)) {
+		pr_err("%s: Invalid data ctrl : 0x%zx\n", __func__, (size_t)vdd);
+		return NULL;
+	}
+
+	return vdd;
+}
+#endif
+
 static int mdss_mdp_overlay_on(struct msm_fb_data_type *mfd)
 {
 	int rc;
@@ -4547,12 +4611,14 @@ static int mdss_mdp_overlay_on(struct msm_fb_data_type *mfd)
 	if (!mfd)
 		return -ENODEV;
 
-	if (mfd->key != MFD_KEY)
+	if (mfd->key != MFD_KEY) {
 		return -EINVAL;
+	}
 
 	mdp5_data = mfd_to_mdp5_data(mfd);
-	if (!mdp5_data)
+	if (!mdp5_data) {
 		return -EINVAL;
+	}
 
 	mdss_mdp_set_lm_flag(mfd);
 
@@ -4573,7 +4639,7 @@ static int mdss_mdp_overlay_on(struct msm_fb_data_type *mfd)
 	}
 
 	if (mdss_fb_is_power_on(mfd)) {
-		pr_debug("panel was never turned off\n");
+		pr_err("panel was never turned off\n");
 		rc = mdss_mdp_ctl_start(ctl, false);
 		goto panel_on;
 	}
@@ -4615,6 +4681,10 @@ static int mdss_mdp_overlay_off(struct msm_fb_data_type *mfd)
 	struct mdss_overlay_private *mdp5_data;
 	struct mdss_mdp_mixer *mixer;
 	int need_cleanup;
+	int retire_cnt;
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	struct samsung_display_driver_data *vdd = NULL;
+#endif
 
 	if (!mfd)
 		return -ENODEV;
@@ -4628,6 +4698,10 @@ static int mdss_mdp_overlay_off(struct msm_fb_data_type *mfd)
 		pr_err("ctl not initialized\n");
 		return -ENODEV;
 	}
+
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	vdd = mdss_samsung_get_vdd(mdp5_data->ctl);
+#endif
 
 	if (!mdss_mdp_ctl_is_power_on(mdp5_data->ctl)) {
 		if (mfd->panel_reconfig) {
@@ -4678,13 +4752,27 @@ static int mdss_mdp_overlay_off(struct msm_fb_data_type *mfd)
 	 * for retire fence to be updated.
 	 * As a last resort signal the timeline if vsync doesn't arrive.
 	 */
-	if (mdp5_data->retire_cnt) {
+	mutex_lock(&mfd->mdp_sync_pt_data.sync_mutex);
+	retire_cnt = mdp5_data->retire_cnt;
+	mutex_unlock(&mfd->mdp_sync_pt_data.sync_mutex);
+	if (retire_cnt) {
 		u32 fps = mdss_panel_get_framerate(mfd->panel_info);
 		u32 vsync_time = 1000 / (fps ? : DEFAULT_FRAME_RATE);
 
 		msleep(vsync_time);
+		mutex_lock(&mfd->mdp_sync_pt_data.sync_mutex);
+		retire_cnt = mdp5_data->retire_cnt;
+		mutex_unlock(&mfd->mdp_sync_pt_data.sync_mutex);
+		__vsync_retire_signal(mfd, retire_cnt);
+		 /*
+		 * the retire work can still schedule after above retire_signal
+		 * api call. Flush workqueue guarantees that current caller
+		 * context is blocked till retire_work finishes. Any work
+		 * schedule after flush call should not cause any issue because
+		 * retire_signal api checks for retire_cnt with sync_mutex lock.
+		 */
 
-		__vsync_retire_signal(mfd, mdp5_data->retire_cnt);
+		 flush_work(&mdp5_data->retire_work);
 	}
 
 ctl_stop:
@@ -4914,6 +5002,7 @@ static void __vsync_retire_signal(struct msm_fb_data_type *mfd, int val)
 		sw_sync_timeline_inc(mdp5_data->vsync_timeline, val);
 
 		mdp5_data->retire_cnt -= min(val, mdp5_data->retire_cnt);
+		MDSS_XLOG(mdp5_data->retire_cnt, val, mdp5_data->vsync_timeline);
 		if (mdp5_data->retire_cnt == 0) {
 			mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
 			mdp5_data->ctl->ops.remove_vsync_handler(mdp5_data->ctl,
@@ -4959,10 +5048,13 @@ static int __vsync_set_vsync_handler(struct msm_fb_data_type *mfd)
 	struct mdss_overlay_private *mdp5_data = mfd_to_mdp5_data(mfd);
 	struct mdss_mdp_ctl *ctl;
 	int rc;
+	int retire_cnt;
 
 	ctl = mdp5_data->ctl;
-	if (!mdp5_data->retire_cnt ||
-		mdp5_data->vsync_retire_handler.enabled)
+	mutex_lock(&mfd->mdp_sync_pt_data.sync_mutex);
+	retire_cnt = mdp5_data->retire_cnt;
+	mutex_unlock(&mfd->mdp_sync_pt_data.sync_mutex);
+	if (!retire_cnt || mdp5_data->vsync_retire_handler.enabled)
 		return 0;
 
 	if (!ctl->ops.add_vsync_handler)

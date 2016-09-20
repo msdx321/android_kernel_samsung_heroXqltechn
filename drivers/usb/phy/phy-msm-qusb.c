@@ -61,6 +61,11 @@
 #define TUNE2_DEFAULT_HIGH_NIBBLE	0xB
 #define TUNE2_DEFAULT_LOW_NIBBLE	0x3
 
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+#define SS_SYNC_VALUE		0x8
+#define SS_LOW_TUNE2		0x0
+#endif
+
 /* Get TUNE2's high nibble value read from efuse */
 #define TUNE2_HIGH_NIBBLE_VAL(val, pos, mask)	((val >> pos) & mask)
 
@@ -493,7 +498,7 @@ static void qusb_phy_get_tune2_param(struct qusb_phy *qphy)
 	 * value for this purpose.
 	 */
 	qphy->tune2_val = readl_relaxed(qphy->tune2_efuse_reg);
-	pr_debug("%s(): bit_mask:%d efuse based tune2 value:%d\n",
+	pr_info("%s(): bit_mask:%d efuse based tune2 value:%d\n",
 				__func__, bit_mask, qphy->tune2_val);
 
 	qphy->tune2_val = TUNE2_HIGH_NIBBLE_VAL(qphy->tune2_val,
@@ -501,6 +506,15 @@ static void qusb_phy_get_tune2_param(struct qusb_phy *qphy)
 
 	if (!qphy->tune2_val)
 		qphy->tune2_val = TUNE2_DEFAULT_HIGH_NIBBLE;
+
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	if (qphy->tune2_val >= SS_SYNC_VALUE) {
+		qphy->tune2_val = qphy->tune2_val - SS_SYNC_VALUE;
+	} else {
+		pr_info("fail to apply SS_SYNC_VALUE. QC efuse based tune2 value is too low.\n");
+		qphy->tune2_val = SS_LOW_TUNE2;
+	}
+#endif
 
 	/* Get TUNE2 byte value using high and low nibble value */
 	qphy->tune2_val = ((qphy->tune2_val << 0x4) |
@@ -615,6 +629,21 @@ static int qusb_phy_init(struct usb_phy *phy)
 				qphy->base + QUSB2PHY_PORT_TUNE2);
 	}
 
+#ifdef CONFIG_USB_HOST_NOTIFY
+	if(qphy->phy.otg_mode == OTG_MODE_HOST) {
+		writel_relaxed(0xf8, qphy->base + QUSB2PHY_PORT_TUNE1);
+		writel_relaxed(0xc3, qphy->base + QUSB2PHY_PORT_TUNE2);
+		writel_relaxed(0x83, qphy->base + QUSB2PHY_PORT_TUNE3);
+	}
+#endif
+
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	pr_info("PHY Tune1:%x,Tune2:%x,Tune3:%x,Tune4:%x",
+			readb_relaxed(qphy->base + QUSB2PHY_PORT_TUNE1),
+			readb_relaxed(qphy->base + QUSB2PHY_PORT_TUNE2),
+			readb_relaxed(qphy->base + QUSB2PHY_PORT_TUNE3),
+			readb_relaxed(qphy->base + QUSB2PHY_PORT_TUNE4));
+#endif
 	/* ensure above writes are completed before re-enabling PHY */
 	wmb();
 
@@ -809,6 +838,19 @@ static int qusb_phy_notify_disconnect(struct usb_phy *phy,
 	dev_dbg(phy->dev, "QUSB2 phy disconnect notification\n");
 	return 0;
 }
+
+#ifdef CONFIG_USB_HOST_NOTIFY
+static int qusb_phy_set_mode(struct usb_phy *phy,
+					enum usb_otg_mode mode)
+{
+	struct qusb_phy *qphy = container_of(phy, struct qusb_phy, phy);
+
+	dev_info(phy->dev, "qusb_phy_set_mode, usb_otg_mode=%d\n", mode);
+
+	qphy->phy.otg_mode = mode;
+	return 0;
+}
+#endif
 
 static int qusb_phy_probe(struct platform_device *pdev)
 {
@@ -1039,6 +1081,10 @@ static int qusb_phy_probe(struct platform_device *pdev)
 		qphy->phy.notify_connect        = qusb_phy_notify_connect;
 		qphy->phy.notify_disconnect     = qusb_phy_notify_disconnect;
 	}
+
+#ifdef CONFIG_USB_HOST_NOTIFY
+	qphy->phy.set_mode		= qusb_phy_set_mode;
+#endif
 
 	/*
 	 * On some platforms multiple QUSB PHYs are available. If QUSB PHY is

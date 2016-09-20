@@ -34,7 +34,11 @@
 #define TZ_ES_INVALIDATE_ICE_KEY 0x3
 
 /* index 0 and 1 is reserved for FDE */
+#ifdef CONFIG_CRYPTO_FDE_KEY_UPDATE
+#define MIN_ICE_KEY_INDEX 3
+#else
 #define MIN_ICE_KEY_INDEX 2
+#endif
 
 #define MAX_ICE_KEY_INDEX 31
 

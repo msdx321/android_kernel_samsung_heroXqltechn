@@ -63,6 +63,14 @@
 #include <asm/psci.h>
 #include <asm/efi.h>
 
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/qcom/sec_debug.h>
+#endif
+
+#ifdef CONFIG_PROC_AVC
+#include <linux/proc_avc.h>
+#endif
+
 unsigned int processor_id;
 EXPORT_SYMBOL(processor_id);
 
@@ -85,6 +93,8 @@ unsigned int compat_elf_hwcap2 __read_mostly;
 #endif
 
 DECLARE_BITMAP(cpu_hwcaps, ARM64_NCAPS);
+unsigned int system_rev;
+EXPORT_SYMBOL(system_rev);
 
 unsigned int boot_reason;
 EXPORT_SYMBOL(boot_reason);
@@ -347,6 +357,14 @@ static int __init early_mem(char *p)
 }
 early_param("mem", early_mem);
 
+static int __init msm_hw_rev_setup(char *p)
+{
+	system_rev = memparse(p, NULL);
+	printk("androidboot.revision %x", system_rev);
+	return 0;
+}
+early_param("androidboot.revision", msm_hw_rev_setup);
+
 static void __init request_standard_resources(void)
 {
 	struct memblock_region *region;
@@ -434,6 +452,13 @@ void __init setup_arch(char **cmdline_p)
 
 static int __init arm64_device_init(void)
 {
+#ifdef CONFIG_SEC_DEBUG
+	sec_debug_init();
+#endif
+#ifdef CONFIG_PROC_AVC
+        sec_avc_log_init();
+#endif
+
 	of_platform_populate(NULL, of_default_bus_match_table, NULL, NULL);
 	return 0;
 }
@@ -505,6 +530,7 @@ static const char *compat_hwcap2_str[] = {
 static int c_show(struct seq_file *m, void *v)
 {
 	int i, j;
+	u32 cpuid;
 
 	for_each_present_cpu(i) {
 		struct cpuinfo_arm64 *cpuinfo = &per_cpu(cpu_data, i);
@@ -517,6 +543,11 @@ static int c_show(struct seq_file *m, void *v)
 		 */
 #ifdef CONFIG_SMP
 		seq_printf(m, "processor\t: %d\n", i);
+#endif
+#ifdef CONFIG_SEC_BSP
+		cpuid = read_cpuid_id();
+		seq_printf(m, "model name\t: %s rev %d (%s)\n",
+			   cpu_name, cpuid & 15, ELF_PLATFORM);
 #endif
 
 		/*
@@ -550,6 +581,13 @@ static int c_show(struct seq_file *m, void *v)
 		seq_printf(m, "CPU part\t: 0x%03x\n", MIDR_PARTNUM(midr));
 		seq_printf(m, "CPU revision\t: %d\n\n", MIDR_REVISION(midr));
 	}
+#ifdef CONFIG_SEC_BSP
+	if (!arch_read_hardware_id)
+		seq_printf(m, "Hardware\t: %s\n", "Qualcomm MSM8996");
+	else
+		seq_printf(m, "Hardware\t: %s\n", arch_read_hardware_id());
+#endif
+	seq_printf(m, "Revision\t: %04x\n", system_rev);
 
 	return 0;
 }

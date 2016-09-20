@@ -891,6 +891,8 @@ static void unregister_client_adhoc(uint32_t cl)
 	}
 	commit_data();
 	msm_bus_dbg_client_data(client->pdata, MSM_BUS_DBG_UNREGISTER, cl);
+
+	kfree(client->src_devs);
 	kfree(client->src_pnode);
 	kfree(client);
 	handle_list.cl_list[cl] = NULL;
@@ -927,10 +929,10 @@ static int alloc_handle_lst(int size)
 			goto exit_alloc_handle_lst;
 		}
 
+		handle_list.cl_list = t_cl_list;
 		memset(&handle_list.cl_list[handle_list.num_entries], 0,
 			NUM_CL_HANDLES * sizeof(struct msm_bus_client *));
 		handle_list.num_entries += NUM_CL_HANDLES;
-		handle_list.cl_list = t_cl_list;
 	}
 exit_alloc_handle_lst:
 	return ret;

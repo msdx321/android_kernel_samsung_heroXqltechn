@@ -11,6 +11,8 @@
  * GNU General Public License for more details.
  */
 
+#define DEBUG
+
 #include <linux/wait.h>
 #include <linux/poll.h>
 #include <linux/usb/usb_ctrl_qti.h>

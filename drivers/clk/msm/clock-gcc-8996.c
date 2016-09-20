@@ -884,6 +884,7 @@ static struct clk_freq_tbl ftbl_blsp2_qup3_spi_apps_clk_src[] = {
 	F(   9600000,         cxo_clk_src,    2,    0,     0),
 	F(  15000000, gpll0_out_main,   10,    1,     4),
 	F(  25000000, gpll0_out_main,   12,    1,     2),
+	F(  48000000, gpll0_out_main, 12.5,    0,     0),
 	F(  50000000, gpll0_out_main,   12,    0,     0),
 	F_END
 };
@@ -928,7 +929,9 @@ static struct clk_freq_tbl ftbl_blsp2_qup4_spi_apps_clk_src[] = {
 	F(   4800000,         cxo_clk_src,    4,    0,     0),
 	F(   9600000,         cxo_clk_src,    2,    0,     0),
 	F(  15000000, gpll0_out_main,   10,    1,     4),
+	F(  24000000, gpll0_out_main,    5,    1,     5),
 	F(  25000000, gpll0_out_main,   12,    1,     2),
+	F(  48000000, gpll0_out_main, 12.5,    0,     0),
 	F(  50000000, gpll0_out_main,   12,    0,     0),
 	F_END
 };

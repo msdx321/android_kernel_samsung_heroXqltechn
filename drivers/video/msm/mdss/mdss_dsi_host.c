@@ -28,9 +28,18 @@
 #include "mdss_panel.h"
 #include "mdss_debug.h"
 #include "mdss_smmu.h"
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+#include "samsung/ss_dsi_panel_common.h"
+#endif
 
 #define VSYNC_PERIOD 17
+
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+#define DMA_TX_TIMEOUT 1000
+#else
 #define DMA_TX_TIMEOUT 200
+#endif
+
 #define DMA_TPG_FIFO_LEN 64
 
 struct mdss_dsi_ctrl_pdata *ctrl_list[DSI_CTRL_MAX];
@@ -1461,6 +1470,48 @@ static int mdss_dsi_cmd_dma_tpg_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 	return ret;
 }
 
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+static void print_cmd_desc(struct mdss_dsi_ctrl_pdata *ctrl,
+		struct dsi_cmd_desc *cmds, int cnt)
+{
+	struct samsung_display_driver_data *vdd = NULL;
+	char buf[1024];
+	int len;
+	int i,j;
+
+	if (IS_ERR_OR_NULL(ctrl))
+		return;
+
+	vdd = check_valid_ctrl(ctrl);
+
+	if (IS_ERR_OR_NULL(vdd))
+		return;
+
+	if (!vdd->debug_data->print_cmds) {
+		LCD_DEBUG("print_cmds is disabled(%s)",
+				vdd->debug_data->print_cmds ? "enabled" : "disabled");
+		return;
+	}
+
+	for (j=0; j < cnt; j++) {
+		len = 0;
+		len += sprintf(buf, "%02x ", cmds[j].dchdr.dtype);
+		len += sprintf(buf + len, "%02x ", cmds[j].dchdr.last);
+		len += sprintf(buf + len, "%02x ", cmds[j].dchdr.vc);
+		len += sprintf(buf + len, "%02x ", cmds[j].dchdr.ack);
+		len += sprintf(buf + len, "%02x ", cmds[j].dchdr.wait);
+		len += sprintf(buf + len, "%02x ", cmds[j].dchdr.dlen);
+
+		for (i = 0; i < cmds[j].dchdr.dlen; i++)
+			len += sprintf(buf + len, "%02x ", cmds[j].payload[i]);
+
+		LCD_INFO("(%02d) %s\n", j, buf);
+	}
+
+	return;
+}
+#endif
+
 static int mdss_dsi_cmds2buf_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 			struct dsi_cmd_desc *cmds, int cnt, int use_dma_tpg)
 {
@@ -1473,6 +1524,11 @@ static int mdss_dsi_cmds2buf_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 	mdss_dsi_buf_init(tp);
 	cm = cmds;
 	len = 0;
+
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+	print_cmd_desc(ctrl, cmds, cnt);
+#endif
+
 	while (cnt--) {
 		dchdr = &cm->dchdr;
 		mdss_dsi_buf_reserve(tp, len);
@@ -1885,7 +1941,7 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 		}
 		ctrl->dmap_iommu_map = true;
 	} else {
-		ctrl->dma_addr = tp->dmap;
+		return -EINVAL;
 	}
 
 	reinit_completion(&ctrl->dma_comp);
@@ -1947,6 +2003,10 @@ static int mdss_dsi_cmd_dma_tx(struct mdss_dsi_ctrl_pdata *ctrl,
 			pr_warn("%s: dma tx done but irq not triggered\n",
 				__func__);
 		} else {
+			pr_err("MIPI dma tx timeout!!\n");
+			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl", "dsi0_phy",
+				"dsi1_ctrl", "dsi1_phy", "vbif", "vbif_nrt",
+				"dbg_bus", "vbif_dbg_bus", "panic");
 			ret = -ETIMEDOUT;
 		}
 	}
@@ -2313,7 +2373,11 @@ int mdss_dsi_cmdlist_rx(struct mdss_dsi_ctrl_pdata *ctrl,
 		rp = &ctrl->rx_buf;
 		len = mdss_dsi_cmds_rx(ctrl, req->cmds, req->rlen,
 				(req->flags & CMD_REQ_DMA_TPG));
+#if defined(CONFIG_FB_MSM_MDSS_SAMSUNG)
+		pr_debug("%s skip memcopy to req-buffer from rx buffer", __func__);
+#else
 		memcpy(req->rbuf, rp->data, rp->len);
+#endif
 		ctrl->rx_len = len;
 	} else {
 		pr_err("%s: No rx buffer provided\n", __func__);
@@ -2366,8 +2430,6 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 		/* make sure dsi_cmd_mdp is idle */
 		mdss_dsi_cmd_mdp_busy(ctrl);
 	}
-
-	mdss_dsi_get_hw_revision(ctrl);
 
 	/* For DSI versions less than 1.3.0, CMD DMA TPG is not supported */
 	if (req && (ctrl->shared_data->hw_rev < MDSS_DSI_HW_REV_103))
@@ -2538,7 +2600,7 @@ static int dsi_event_thread(void *data)
 		if (todo & DSI_EV_MDP_FIFO_UNDERFLOW) {
 			mutex_lock(&ctrl->mutex);
 			if (ctrl->recovery) {
-				pr_debug("%s: Handling underflow event\n",
+				pr_err("%s: Handling underflow event\n",
 							__func__);
 				mdss_dsi_clk_ctrl(ctrl, ctrl->dsi_clk_handle,
 						  MDSS_DSI_ALL_CLKS,
@@ -2551,9 +2613,10 @@ static int dsi_event_thread(void *data)
 						  MDSS_DSI_CLK_OFF);
 			}
 			mutex_unlock(&ctrl->mutex);
-			MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl",
-				"dsi0_phy", "dsi1_ctrl", "dsi1_phy", "vbif",
-				"vbif_nrt", "dbg_bus", "vbif_dbg_bus", "panic");
+			if (!ctrl->recovery)
+				MDSS_XLOG_TOUT_HANDLER("mdp", "dsi0_ctrl", "dsi0_phy",
+					"dsi1_ctrl", "dsi1_phy", "panic",
+					"vbif", "dbg_bus", "vbif_dbg_bus", "panic");
 		}
 
 		if (todo & DSI_EV_DSI_FIFO_EMPTY)

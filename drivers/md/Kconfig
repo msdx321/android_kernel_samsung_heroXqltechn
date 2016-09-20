@@ -243,7 +243,6 @@ config DM_REQ_CRYPT
 	tristate "Req Crypt target support"
 	depends on BLK_DEV_DM
 	select XTS
-	select CRYPTO_XTS
 	---help---
 	  This request based device-mapper target allows you to create a device that
 	  transparently encrypts the data on it. You'll need to activate
@@ -446,6 +445,15 @@ config DM_SWITCH
 
 	  To compile this code as a module, choose M here: the module will
 	  be called dm-switch.
+
+	  If unsure, say N.
+
+config CRYPTO_FDE_KEY_UPDATE
+	tristate "Update ICE key slot #2 for dm-req-crypt by outside key"
+	default n
+	---help---
+	  ICE key can change to sec key.
+	  It uses only slot #2.
 
 	  If unsure, say N.
 

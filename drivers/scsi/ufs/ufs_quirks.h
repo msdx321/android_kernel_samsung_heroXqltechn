@@ -17,7 +17,7 @@
 /* return true if s1 is a prefix of s2 */
 #define STR_PRFX_EQUAL(s1, s2) !strncmp(s1, s2, strlen(s1))
 
-#define UFS_ANY_VENDOR -1
+#define UFS_ANY_VENDOR 0xffff
 #define UFS_ANY_MODEL  "ANY_MODEL"
 
 #define MAX_MODEL_LEN 16
@@ -29,6 +29,11 @@
 #define UFS_MODEL_TOSHIBA_32GB "THGLF2G8D4KBADR"
 #define UFS_MODEL_TOSHIBA_64GB "THGLF2G9D8KBADG"
 
+/*uniqueu number*/
+#define	UFS_UN_16_DIGITS 16
+#define UFS_UN_18_DIGITS 18
+#define UFS_UN_MAX_DIGITS 19 //current max digit + 1
+
 /**
  * ufs_card_info - ufs device details
  * @wmanufacturerid: card details
@@ -36,6 +41,7 @@
  */
 struct ufs_card_info {
 	u16 wmanufacturerid;
+	u8 lifetime;
 	char *model;
 };
 

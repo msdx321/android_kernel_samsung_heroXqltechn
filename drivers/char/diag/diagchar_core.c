@@ -22,6 +22,7 @@
 #include <linux/sched.h>
 #include <linux/ratelimit.h>
 #include <linux/timer.h>
+#include <linux/msm-bus.h>
 #ifdef CONFIG_DIAG_OVER_USB
 #include <linux/usb/usbdiag.h>
 #endif
@@ -387,10 +388,10 @@ static void diag_close_logging_process(const int pid)
 	params.req_mode = USB_MODE;
 	params.mode_param = 0;
 	params.peripheral_mask = 0;
-	mutex_lock(&driver->diagchar_mutex);
+		mutex_lock(&driver->diagchar_mutex);
 	diag_switch_logging(&params);
-	mutex_unlock(&driver->diagchar_mutex);
-}
+		mutex_unlock(&driver->diagchar_mutex);
+	}
 
 static int diag_remove_client_entry(struct file *file)
 {
@@ -414,6 +415,11 @@ static int diag_remove_client_entry(struct file *file)
 	}
 
 	diagpriv_data = file->private_data;
+
+	if(driver->silent_log_pid) {
+		put_pid(driver->silent_log_pid);
+		driver->silent_log_pid = NULL;
+	}
 
 	/* clean up any DCI registrations, if this is a DCI client
 	* This will specially help in case of ungraceful exit of any DCI client
@@ -573,8 +579,10 @@ static void diag_cmd_invalidate_polling(int change_flag)
 	struct diag_cmd_reg_t *item = NULL;
 
 	if (change_flag == DIAG_CMD_ADD) {
-		if (driver->polling_reg_flag)
+		if (driver->polling_reg_flag){
+			DIAG_LOG(DIAG_DEBUG_PERIPHERALS," exiting function %s",__func__);
 			return;
+		}
 	}
 
 	driver->polling_reg_flag = 0;
@@ -1501,20 +1509,25 @@ static int diag_switch_logging(struct diag_logging_mode_param_t *param)
 	DIAG_LOG(DIAG_DEBUG_USERSPACE,
 		 "request to switch logging from: %d to %d\n",
 		 curr_mode, new_mode);
-
+	if (param->req_mode == MEMORY_DEVICE_MODE && driver->md_session_mask == 0)
+		msm_bus_floor_vote("bimc", 300000000);
+	else {
+		if (param->req_mode != MEMORY_DEVICE_MODE && driver->md_session_mask == 0)
+			msm_bus_floor_vote("bimc", 0);
+	}
 	err = diag_md_session_check(curr_mode, new_mode, param, &do_switch);
 	if (err) {
 		DIAG_LOG(DIAG_DEBUG_USERSPACE,
 			 "err from diag_md_session_check, err: %d\n", err);
 		return err;
-	}
+		}
 
 	if (do_switch == 0) {
-		DIAG_LOG(DIAG_DEBUG_USERSPACE,
+			DIAG_LOG(DIAG_DEBUG_USERSPACE,
 			 "not switching modes c: %d n: %d\n",
 			 curr_mode, new_mode);
-		return 0;
-	}
+			return 0;
+		}
 
 	diag_ws_reset(DIAG_WS_MUX);
 	err = diag_mux_switch_logging(new_mode);
@@ -1808,7 +1821,7 @@ static int diag_ioctl_hdlc_toggle(unsigned long ioarg)
 		session_info->hdlc_disabled = hdlc_support;
 		mutex_unlock(&driver->md_session_lock);
 	} else
-		driver->hdlc_disabled = hdlc_support;
+	driver->hdlc_disabled = hdlc_support;
 	mutex_unlock(&driver->hdlc_disable_mutex);
 	diag_update_md_clients(HDLC_SUPPORT_TYPE);
 
@@ -2004,6 +2017,10 @@ long diagchar_compat_ioctl(struct file *filp,
 		if (copy_from_user((void *)&mode_param, (void __user *)ioarg,
 				   sizeof(mode_param)))
 			return -EFAULT;
+		/*
+		 * Get a pid of diag_mdlog(app) and save it.
+		 */
+		driver->silent_log_pid = get_pid(task_pid(current));
 		mutex_lock(&driver->diagchar_mutex);
 		result = diag_switch_logging(&mode_param);
 		mutex_unlock(&driver->diagchar_mutex);
@@ -2107,6 +2124,10 @@ long diagchar_ioctl(struct file *filp,
 		if (copy_from_user((void *)&mode_param, (void __user *)ioarg,
 				   sizeof(mode_param)))
 			return -EFAULT;
+		/*
+		 * Get a pid of diag_mdlog(app) and save it.
+		 */
+		driver->silent_log_pid = get_pid(task_pid(current));
 		mutex_lock(&driver->diagchar_mutex);
 		result = diag_switch_logging(&mode_param);
 		mutex_unlock(&driver->diagchar_mutex);
@@ -2555,7 +2576,7 @@ static int diag_user_process_userspace_data(const char __user *buf, int len)
 				len, session_info);
 		else
 			diag_process_non_hdlc_pkt((char *)
-						(driver->user_space_data_buf),
+				(driver->user_space_data_buf),
 						len, session_info);
 		return 0;
 	}
@@ -2662,6 +2683,26 @@ static int diag_user_process_apps_data(const char __user *buf, int len,
 	return 0;
 }
 
+/*
+ * silent_log_panic_handler()
+ * If the silent log is enabled for CP and CP is in
+ * trouble, diag_mdlog (APP) should be terminated before
+ * a panic occurs, since it can flush logs to SD card
+ * when it is over. So, please use this function to termimate it.
+ */
+int silent_log_panic_handler(void)
+{
+	int ret = 0;
+	if(driver->silent_log_pid) {
+		pr_info("%s: killing slient log...\n", __func__);
+		kill_pid(driver->silent_log_pid, SIGTERM, 1);
+		driver->silent_log_pid = NULL;
+		ret = 1;
+	}
+	return ret;
+}
+EXPORT_SYMBOL(silent_log_panic_handler);
+
 static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 			  loff_t *ppos)
 {
@@ -2757,7 +2798,7 @@ static ssize_t diagchar_read(struct file *file, char __user *buf, size_t count,
 		} else {
 			COPY_USER_SPACE_OR_EXIT(buf + sizeof(int),
 						*(event_mask.ptr),
-						event_mask.mask_len);
+					event_mask.mask_len);
 		}
 		driver->data_ready[index] ^= EVENT_MASKS_TYPE;
 		goto exit;

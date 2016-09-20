@@ -558,7 +558,10 @@ static int alpha_pll_set_rate(struct clk *c, unsigned long rate)
 	 * assume no downstream clock is actively using it. No support
 	 * for dynamic update at the moment.
 	 */
-	spin_lock_irqsave(&c->lock, flags);
+	if (pll->no_irq_dis)
+		spin_lock(&c->lock);
+	else
+		spin_lock_irqsave(&c->lock, flags);
 	if (c->count)
 		c->ops->disable(c);
 
@@ -581,7 +584,10 @@ static int alpha_pll_set_rate(struct clk *c, unsigned long rate)
 	if (c->count)
 		c->ops->enable(c);
 
-	spin_unlock_irqrestore(&c->lock, flags);
+	if (pll->no_irq_dis)
+		spin_unlock(&c->lock);
+	else
+		spin_unlock_irqrestore(&c->lock, flags);
 	return 0;
 }
 

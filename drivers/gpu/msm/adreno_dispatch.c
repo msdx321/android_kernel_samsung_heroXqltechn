@@ -2083,6 +2083,7 @@ static void adreno_dispatcher_work(struct work_struct *work)
 	int count = 0;
 	int cur_rb_id = adreno_dev->cur_rb->id;
 
+	trace_printk("work:%p, %pF\n", work, __builtin_return_address(0));
 	mutex_lock(&dispatcher->mutex);
 
 	if (ADRENO_DISPATCHER_PREEMPT_CLEAR ==

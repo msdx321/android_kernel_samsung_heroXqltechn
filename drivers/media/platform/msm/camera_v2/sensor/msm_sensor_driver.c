@@ -10,7 +10,7 @@
  * GNU General Public License for more details.
  */
 
-#define SENSOR_DRIVER_I2C "camera"
+#define SENSOR_DRIVER_I2C "i2c_camera"
 /* Header file declaration */
 #include "msm_sensor.h"
 #include "msm_sd.h"
@@ -24,12 +24,19 @@
 
 #define SENSOR_MAX_MOUNTANGLE (360)
 
+#if defined (CONFIG_CAMERA_SYSFS_V2)
+extern char rear_cam_info[100];		//camera_info
+extern char front_cam_info[100];	//camera_info
+#endif
+
 static struct v4l2_file_operations msm_sensor_v4l2_subdev_fops;
 static int32_t msm_sensor_driver_platform_probe(struct platform_device *pdev);
 
 /* Static declaration */
 static struct msm_sensor_ctrl_t *g_sctrl[MAX_CAMERAS];
-
+#if defined(CONFIG_SAMSUNG_OIS)
+extern struct msm_camera_power_ctrl_t *g_ois_power_info;
+#endif
 static int msm_sensor_platform_remove(struct platform_device *pdev)
 {
 	struct msm_sensor_ctrl_t  *s_ctrl;
@@ -106,6 +113,13 @@ static int32_t msm_sensor_driver_create_i2c_v4l_subdev
 	s_ctrl->sensordata->sensor_info->session_id = session_id;
 	s_ctrl->msm_sd.close_seq = MSM_SD_CLOSE_2ND_CATEGORY | 0x3;
 	msm_sd_register(&s_ctrl->msm_sd);
+	msm_sensor_v4l2_subdev_fops = v4l2_subdev_fops;
+#ifdef CONFIG_COMPAT
+	msm_sensor_v4l2_subdev_fops.compat_ioctl32 =
+		msm_sensor_subdev_fops_ioctl;
+#endif
+	s_ctrl->msm_sd.sd.devnode->fops =
+		&msm_sensor_v4l2_subdev_fops;
 	CDBG("%s:%d\n", __func__, __LINE__);
 	return rc;
 }
@@ -151,11 +165,14 @@ static int32_t msm_sensor_fill_eeprom_subdevid_by_name(
 				struct msm_sensor_ctrl_t *s_ctrl)
 {
 	int32_t rc = 0;
+	const char *eeprom_name;
 	struct device_node *src_node = NULL;
-	uint32_t val = 0, eeprom_name_len;
+	uint32_t val = 0, count = 0, eeprom_name_len;
+	int i;
 	int32_t *eeprom_subdev_id;
 	struct  msm_sensor_info_t *sensor_info;
 	struct device_node *of_node = s_ctrl->of_node;
+	const void *p;
 
 	if (!s_ctrl->sensordata->eeprom_name || !of_node)
 		return -EINVAL;
@@ -175,25 +192,46 @@ static int32_t msm_sensor_fill_eeprom_subdevid_by_name(
 	if (0 == eeprom_name_len)
 		return 0;
 
-	src_node = of_parse_phandle(of_node, "qcom,eeprom-src", 0);
-	if (!src_node) {
-		pr_err("eeprom src node NULL\n");
-		return -EINVAL;
-	}
+	CDBG("Try to find eeprom subdev for %s\n",
+			s_ctrl->sensordata->eeprom_name);
+	p = of_get_property(of_node, "qcom,eeprom-src", &count);
+	if (!p || !count)
+		return 0;
 
-	rc = of_property_read_u32(src_node, "cell-index", &val);
-	if (rc < 0) {
-		pr_err("%s qcom,eeprom cell index %d, rc %d\n",
-			__func__, val, rc);
+	count /= sizeof(uint32_t);
+	for (i = 0; i < count; i++) {
+		eeprom_name = NULL;
+		src_node = of_parse_phandle(of_node, "qcom,eeprom-src", i);
+		if (!src_node) {
+			pr_err("eeprom src node NULL\n");
+			continue;
+		}
+		rc = of_property_read_string(src_node, "qcom,eeprom-name",
+			&eeprom_name);
+		if (rc < 0) {
+			pr_err("failed\n");
+			of_node_put(src_node);
+			continue;
+		}
+		if (strcmp(eeprom_name, s_ctrl->sensordata->eeprom_name))
+			continue;
+
+		rc = of_property_read_u32(src_node, "cell-index", &val);
+
+		CDBG("%s qcom,eeprom cell index %d, rc %d\n", __func__,
+			val, rc);
+		if (rc < 0) {
+			pr_err("failed\n");
+			of_node_put(src_node);
+			continue;
+		}
+
+		*eeprom_subdev_id = val;
+		CDBG("Done. Eeprom subdevice id is %d\n", val);
 		of_node_put(src_node);
-		return -EINVAL;
+		src_node = NULL;
+		break;
 	}
-
-	*eeprom_subdev_id = val;
-	CDBG("%s:%d Eeprom subdevice id is %d\n",
-		__func__, __LINE__, val);
-	of_node_put(src_node);
-	src_node = NULL;
 
 	return rc;
 }
@@ -836,6 +874,9 @@ int32_t msm_sensor_driver_probe(void *setting,
 		goto free_camera_info;
 	}
 
+	if (slave_info->camera_id == CAMERA_0) {
+		g_ois_power_info = &s_ctrl->sensordata->power_info;
+	}
 CSID_TG:
 	/* Update sensor, actuator and eeprom name in
 	*  sensor control structure */
@@ -867,7 +908,11 @@ CSID_TG:
 	}
 
 	/* Power up and probe sensor */
+#if defined(CONFIG_SAMSUNG_QUICK_SWITCHING)
+	rc = s_ctrl->func_tbl->sensor_power_up_full(s_ctrl);
+#else
 	rc = s_ctrl->func_tbl->sensor_power_up(s_ctrl);
+#endif
 	if (rc < 0) {
 		pr_err("%s power up failed", slave_info->sensor_name);
 		goto free_camera_info;
@@ -904,7 +949,11 @@ CSID_TG:
 	}
 
 	/* Power down */
+#if defined(CONFIG_SAMSUNG_QUICK_SWITCHING)
+	s_ctrl->func_tbl->sensor_power_down_full(s_ctrl);
+#else
 	s_ctrl->func_tbl->sensor_power_down(s_ctrl);
+#endif
 
 	rc = msm_sensor_fill_slave_info_init_params(
 		slave_info,
@@ -936,7 +985,11 @@ CSID_TG:
 	return rc;
 
 camera_power_down:
+#if defined(CONFIG_SAMSUNG_QUICK_SWITCHING)
+	s_ctrl->func_tbl->sensor_power_down_full(s_ctrl);
+#else
 	s_ctrl->func_tbl->sensor_power_down(s_ctrl);
+#endif
 free_camera_info:
 	kfree(camera_info);
 free_slave_info:
@@ -1115,6 +1168,22 @@ static int32_t msm_sensor_driver_get_dt_data(struct msm_sensor_ctrl_t *s_ctrl)
 	CDBG("%s qcom,mclk-23880000 = %d\n", __func__,
 		s_ctrl->set_mclk_23880000);
 
+#if defined (CONFIG_CAMERA_SYSFS_V2)
+	/* camera information */
+	if (cell_id == 0) {
+		rc = msm_camera_get_dt_camera_info(of_node, rear_cam_info);
+		if (rc < 0) {
+			pr_err("failed: msm_camera_get_dt_camera_info rc %d", rc);
+			goto FREE_VREG_DATA;
+		}
+	} else {
+		rc = msm_camera_get_dt_camera_info(of_node, front_cam_info);
+		if (rc < 0) {
+			pr_err("failed: msm_camera_get_dt_camera_info rc %d", rc);
+			goto FREE_VREG_DATA;
+		}
+	}
+#endif
 	return rc;
 
 FREE_VREG_DATA:
@@ -1312,19 +1381,17 @@ static int __init msm_sensor_driver_init(void)
 {
 	int32_t rc = 0;
 
-	CDBG("Enter");
+	CDBG("%s Enter\n", __func__);
 	rc = platform_driver_register(&msm_sensor_platform_driver);
-	if (!rc) {
-		CDBG("probe success");
-		return rc;
-	} else {
-		CDBG("probe i2c");
-		rc = i2c_add_driver(&msm_sensor_driver_i2c);
-	}
+	if (rc)
+		pr_err("%s platform_driver_register failed rc = %d",
+			__func__, rc);
+	rc = i2c_add_driver(&msm_sensor_driver_i2c);
+	if (rc)
+		pr_err("%s i2c_add_driver failed rc = %d",  __func__, rc);
 
 	return rc;
 }
-
 
 static void __exit msm_sensor_driver_exit(void)
 {
